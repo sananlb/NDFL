@@ -7,6 +7,7 @@ from django.conf.urls.static import static # Для MEDIA_URL в DEBUG режи�
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('reports/', include('reports_to_ndfl.urls')),
+    path('currency/', include('currency_CBRF.urls')),
     path('accounts/', include('django.contrib.auth.urls')), # <--- ДОБАВИТЬ для стандартных URLов входа/выхода
 ]
 

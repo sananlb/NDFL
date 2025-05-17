@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'reports_to_ndfl.apps.ReportsToNdflConfig', # Ваше приложение
+    'currency_CBRF.apps.CurrencyCbrfConfig',
 ]
 
 MIDDLEWARE = [
@@ -90,3 +91,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'login' 
 LOGIN_REDIRECT_URL = 'upload_xml_file' 
 LOGOUT_REDIRECT_URL = 'login'
+
+# Настройки API Центрального Банка РФ
+CBRF_API_BASE_URL = "http://www.cbr.ru/scripts/"
+CBRF_API_TIMEOUT_DAILY = 10  # Таймаут для XML_daily.asp в секундах
+CBRF_API_TIMEOUT_PERIOD = 30 # Таймаут для XML_dynamic.asp в секундах

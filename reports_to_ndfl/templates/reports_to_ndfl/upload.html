@@ -16,10 +16,11 @@
         input[type="number"], input[type="file"] { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
         button[type="submit"] { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
         button[type="submit"]:hover { background-color: #0056b3; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-        th { background-color: #f2f2f2; font-weight: bold; }
-        .instrument-block { margin-bottom: 30px; border: 1px solid #ccc; padding: 20px; border-radius: 5px; background-color: #f9f9f9; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; table-layout: auto; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; word-wrap: break-word; }
+        th { background-color: #f2f2f2; font-weight: bold; white-space: nowrap; }
+        td.numeric { text-align: right; }
+        .instrument-block { margin-bottom: 30px; border: 1px solid #ccc; padding: 20px; border-radius: 5px; background-color: #f9f9f9; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow-x: auto; }
         #selected_files ul { list-style-type: disc; margin-left: 20px; padding-left: 0; }
         .user-info { text-align: right; margin-bottom: 20px; padding-bottom:10px; border-bottom: 1px solid #eee; }
         .user-info a { color: #007bff; text-decoration: none; }
@@ -29,6 +30,7 @@
         .previously-uploaded-section li { background-color: #fff; border: 1px solid #eee; padding: 8px 12px; margin-bottom: 5px; border-radius: 3px; display: flex; justify-content: space-between; align-items: center; }
         .previously-uploaded-section li .date { font-size: 0.85em; color: #777; }
         .no-data-message { margin-top: 20px; padding: 15px; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 4px; text-align: center; color: #495057;}
+        .form-section {border: 1px solid #ddd; padding: 20px; margin-bottom: 20px; border-radius: 5px; background-color: #f9f9f9;}
     </style>
 </head>
 <body>
@@ -52,35 +54,48 @@
 
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
-        <div>
-            <label for="year_input">Целевой год отчета:</label>
-            <input type="number" name="year" id="year_input" required placeholder="YYYY" value="{{ target_report_year_for_title|default_if_none:'' }}">
+        
+        <div class="form-section">
+            <h3>1. Загрузка отчетов брокера</h3>
+            <div>
+                <label for="xml_file_input">Файл(ы) XML для загрузки:</label>
+                <input type="file" name="xml_file" id="xml_file_input" multiple>
+            </div>
+            <div id="selected_files" style="margin-top:10px; margin-bottom:15px;"></div>
+            <button type="submit" name="action" value="upload_reports">Загрузить выбранные отчеты</button>
         </div>
-        <div>
-            <label for="xml_file_input">Файл(ы) XML:</label>
-            <input type="file" name="xml_file" id="xml_file_input" multiple>
-        </div>
-        <div id="selected_files" style="margin-top:10px; margin-bottom:10px;"></div>
-        <button type="submit">Загрузить и обработать</button>
-    </form>
 
-    {% if previously_uploaded_files %}
-    <div class="previously-uploaded-section">
-        <h4>Ранее загруженные вами отчеты:</h4>
-        <ul>
-            {% for file_entry in previously_uploaded_files %}
-            <li>
-                <span>{{ file_entry.original_filename }} (Отчет за {{ file_entry.year }} год)</span>
-                <span class="date">Загружен: {{ file_entry.uploaded_at|date:"d.m.Y H:i" }}</span>
-            </li>
-            {% endfor %}
-        </ul>
-    </div>
-    {% elif user.is_authenticated %}
+        {# Блок "Ранее загруженные отчеты" ПЕРЕМЕЩЕН СЮДА #}
+        {% if previously_uploaded_files %}
         <div class="previously-uploaded-section">
-            <p>Вы еще не загружали отчеты.</p>
+            <h4>Ранее загруженные вами отчеты:</h4>
+            <ul>
+                {% for file_entry in previously_uploaded_files %}
+                <li>
+                    <span>{{ file_entry.original_filename }} (Отчет за {{ file_entry.year }} год)</span>
+                    <span class="date">Загружен: {{ file_entry.uploaded_at|date:"d.m.Y H:i" }}</span>
+                </li>
+                {% endfor %}
+            </ul>
         </div>
-    {% endif %}
+        {% elif user.is_authenticated %}
+            {# Показываем этот блок, только если пользователь аутентифицирован и файлов нет #}
+            <div class="previously-uploaded-section">
+                <p>Вы еще не загружали отчеты.</p>
+            </div>
+        {% endif %}
+
+        <div class="form-section">
+            <h3>2. Анализ и расчет сделок</h3>
+            <div>
+                <label for="year_input_process">Целевой год для анализа:</label>
+                <input type="number" name="year_for_process" id="year_input_process" required placeholder="YYYY" value="{{ target_report_year_for_title|default_if_none:'' }}">
+            </div>
+            <button type="submit" name="action" value="process_trades">Рассчитать сделки за указанный год</button>
+        </div>
+    </form>
+    
+    {# Блок "Ранее загруженные отчеты" УДАЛЕН ОТСЮДА #}
 
 
     {% if instrument_trade_history %}
@@ -88,8 +103,8 @@
         {% for issue_nb, trades_list in instrument_trade_history.items %}
             <div class="instrument-block">
                 {% if trades_list %}
-                    {% with first_trade=trades_list.0 %}
-                        <h3>Инструмент: {{ first_trade.instr_nm|default_if_none:"[Наименование не указано]" }} (Код: {{ issue_nb }})</h3>
+                    {% with first_trade=trades_list.0 %} 
+                        <h3>Инструмент: {{ first_trade.instr_nm|default_if_none:"[Наименование не указано]" }} (Код: {{ issue_nb }}{% if first_trade.curr_c %} / Валюта: {{ first_trade.curr_c }}{% endif %})</h3>
                     {% endwith %}
                     <table>
                         <thead>
@@ -100,10 +115,11 @@
                                 <th>Тип</th>
                                 <th>Вид</th>
                                 <th>Цена</th>
-                                <th>Валюта</th>
+                                <th>Курс ЦБ (транз.)</th>
                                 <th>Кол-во</th>
-                                <th>Сумма</th>
-                                <th>Комиссия</th>
+                                <th>Сумма</th> 
+                                <th>Комиссия</th> 
+                                <th>FIFO Затраты, RUB</th> 
                                 <th>Источник (файл)</th>
                             </tr>
                         </thead>
@@ -115,18 +131,18 @@
                                     <td>{{ trade.operation|default:"-" }}</td>
                                     <td>{{ trade.instr_type|default:"-" }}</td>
                                     <td>{{ trade.instr_kind|default:"-" }}</td>
-                                    <td style="text-align: right;">{{ trade.p|default:"-" }}</td>
-                                    <td>{{ trade.curr_c|default:"-" }}</td>
-                                    <td style="text-align: right;">{{ trade.q|default:"-" }}</td>
-                                    <td style="text-align: right;">{{ trade.summ|default:"-" }}</td>
-                                    <td style="text-align: right;">{{ trade.commission|default:"-" }}</td>
+                                    <td class="numeric">{{ trade.p|default:"-" }}</td>
+                                    <td class="numeric">{{ trade.transaction_cbr_rate_str|default:"-" }}</td>
+                                    <td class="numeric">{{ trade.q|default:"-" }}</td>
+                                    <td class="numeric"><strong>{{ trade.summ|default:"-" }}</strong></td>
+                                    <td class="numeric">{{ trade.commission|default:"-" }}</td> 
+                                    <td class="numeric">{{ trade.fifo_cost_rub_str|default:"-" }}</td> 
                                     <td>{{ trade.file_source|default:"-" }}</td>
                                 </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 {% else %}
-                    {# Если trades_list пуст, но issue_nb есть в ключах (значит, по нему были продажи, но истории нет) #}
                     <h3>Инструмент (Код: {{ issue_nb }})</h3>
                     <p>Для данного инструмента были зафиксированы продажи в целевом году, но исторические данные по сделкам отсутствуют или не найдены.</p>
                 {% endif %}
@@ -152,10 +168,13 @@
 
             if (fileList.length > 0) {
                 const fileListTitle = document.createElement('h4');
+                fileListTitle.style.marginTop = '0px'; 
+                fileListTitle.style.marginBottom = '5px';
                 fileListTitle.textContent = 'Выбранные файлы:';
                 selectedFilesDiv.appendChild(fileListTitle);
 
                 const fileListElement = document.createElement('ul');
+                fileListElement.style.marginTop = '0px';
                 for (let i = 0; i < fileList.length; i++) {
                     const listItem = document.createElement('li');
                     listItem.textContent = fileList[i].name;
@@ -165,10 +184,12 @@
             }
         });
         
-        const yearInputHTML = document.getElementById('year_input');
-        const defaultYearValue = "{{ target_report_year_for_title|default_if_none:'' }}";
-        if (yearInputHTML.value === '' && defaultYearValue !== '') {
-            yearInputHTML.value = defaultYearValue;
+        const yearInputHTML = document.getElementById('year_input_process'); 
+        if (yearInputHTML) { 
+            const defaultYearValue = "{{ target_report_year_for_title|default_if_none:'' }}";
+            if (yearInputHTML.value === '' && defaultYearValue !== '') {
+                yearInputHTML.value = defaultYearValue;
+            }
         }
     </script>
 </body>
