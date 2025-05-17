@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Загрузка XML отчетов</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; line-height: 1.6; }
+        h1, h2, h3, h4 { color: #333; }
+        .messages { list-style-type: none; padding: 0; margin-bottom: 20px; }
+        .messages li { margin-bottom: 10px; padding: 10px 15px; border-radius: 4px; border: 1px solid transparent; }
+        .messages li.success { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
+        .messages li.error { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+        .messages li.warning { background-color: #fff3cd; color: #856404; border-color: #ffeeba; }
+        .messages li.info { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
+        form div { margin-bottom: 15px; }
+        label { display: inline-block; min-width: 150px; font-weight: bold; }
+        input[type="number"], input[type="file"] { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        button[type="submit"] { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
+        button[type="submit"]:hover { background-color: #0056b3; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #f2f2f2; font-weight: bold; }
+        .instrument-block { margin-bottom: 30px; border: 1px solid #ccc; padding: 20px; border-radius: 5px; background-color: #f9f9f9; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        #selected_files ul { list-style-type: disc; margin-left: 20px; padding-left: 0; }
+        .user-info { text-align: right; margin-bottom: 20px; padding-bottom:10px; border-bottom: 1px solid #eee; }
+        .user-info a { color: #007bff; text-decoration: none; }
+        .user-info a:hover { text-decoration: underline; }
+        .previously-uploaded-section { margin-top: 30px; margin-bottom:30px; padding:15px; border: 1px solid #e0e0e0; background-color:#fdfdfd; border-radius:5px;}
+        .previously-uploaded-section ul { list-style-type: none; padding-left: 0; }
+        .previously-uploaded-section li { background-color: #fff; border: 1px solid #eee; padding: 8px 12px; margin-bottom: 5px; border-radius: 3px; display: flex; justify-content: space-between; align-items: center; }
+        .previously-uploaded-section li .date { font-size: 0.85em; color: #777; }
+        .no-data-message { margin-top: 20px; padding: 15px; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 4px; text-align: center; color: #495057;}
+    </style>
+</head>
+<body>
+    <div class="user-info">
+        {% if user.is_authenticated %}
+            Пользователь: <strong>{{ user.username }}</strong> | <a href="{% url 'logout' %}">Выйти</a>
+        {% else %}
+            <a href="{% url 'login' %}">Войти</a>
+        {% endif %}
+    </div>
+
+    <h1>Загрузка и анализ XML отчетов брокера</h1>
+
+    {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}
+                <li class="{{ message.tags }}">{{ message }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div>
+            <label for="year_input">Целевой год отчета:</label>
+            <input type="number" name="year" id="year_input" required placeholder="YYYY" value="{{ target_report_year_for_title|default_if_none:'' }}">
+        </div>
+        <div>
+            <label for="xml_file_input">Файл(ы) XML:</label>
+            <input type="file" name="xml_file" id="xml_file_input" multiple>
+        </div>
+        <div id="selected_files" style="margin-top:10px; margin-bottom:10px;"></div>
+        <button type="submit">Загрузить и обработать</button>
+    </form>
+
+    {% if previously_uploaded_files %}
+    <div class="previously-uploaded-section">
+        <h4>Ранее загруженные вами отчеты:</h4>
+        <ul>
+            {% for file_entry in previously_uploaded_files %}
+            <li>
+                <span>{{ file_entry.original_filename }} (Отчет за {{ file_entry.year }} год)</span>
+                <span class="date">Загружен: {{ file_entry.uploaded_at|date:"d.m.Y H:i" }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% elif user.is_authenticated %}
+        <div class="previously-uploaded-section">
+            <p>Вы еще не загружали отчеты.</p>
+        </div>
+    {% endif %}
+
+
+    {% if instrument_trade_history %}
+        <h2>История сделок по инструментам (с продажами в {{ target_report_year_for_title|default:"указанный" }} год):</h2>
+        {% for issue_nb, trades_list in instrument_trade_history.items %}
+            <div class="instrument-block">
+                {% if trades_list %}
+                    {% with first_trade=trades_list.0 %}
+                        <h3>Инструмент: {{ first_trade.instr_nm|default_if_none:"[Наименование не указано]" }} (Код: {{ issue_nb }})</h3>
+                    {% endwith %}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Дата и время</th>
+                                <th>ID сделки (XML)</th>
+                                <th>Операция</th>
+                                <th>Тип</th>
+                                <th>Вид</th>
+                                <th>Цена</th>
+                                <th>Валюта</th>
+                                <th>Кол-во</th>
+                                <th>Сумма</th>
+                                <th>Комиссия</th>
+                                <th>Источник (файл)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for trade in trades_list %}
+                                <tr>
+                                    <td>{{ trade.date|default:"-" }}</td>
+                                    <td>{{ trade.trade_id|default:"-" }}</td>
+                                    <td>{{ trade.operation|default:"-" }}</td>
+                                    <td>{{ trade.instr_type|default:"-" }}</td>
+                                    <td>{{ trade.instr_kind|default:"-" }}</td>
+                                    <td style="text-align: right;">{{ trade.p|default:"-" }}</td>
+                                    <td>{{ trade.curr_c|default:"-" }}</td>
+                                    <td style="text-align: right;">{{ trade.q|default:"-" }}</td>
+                                    <td style="text-align: right;">{{ trade.summ|default:"-" }}</td>
+                                    <td style="text-align: right;">{{ trade.commission|default:"-" }}</td>
+                                    <td>{{ trade.file_source|default:"-" }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    {# Если trades_list пуст, но issue_nb есть в ключах (значит, по нему были продажи, но истории нет) #}
+                    <h3>Инструмент (Код: {{ issue_nb }})</h3>
+                    <p>Для данного инструмента были зафиксированы продажи в целевом году, но исторические данные по сделкам отсутствуют или не найдены.</p>
+                {% endif %}
+            </div>
+        {% empty %} 
+            {% if request.method == 'POST' and not parsing_error_occurred %}
+                 <div class="no-data-message">История сделок по инструментам с продажами в целевой год ({{ target_report_year_for_title|default:"указанный" }}) не найдена или отсутствует.</div>
+            {% endif %}
+        {% endfor %}
+    {% elif request.method == 'POST' and not parsing_error_occurred %}
+        <div class="no-data-message">Нет данных для отображения. Возможно, не найдено инструментов с продажами в целевом году ({{ target_report_year_for_title|default:"указанный" }}), или для них нет истории сделок.</div>
+    {% endif %}
+    
+    {% if parsing_error_occurred and request.method == 'POST' %}
+        <p style="margin-top:20px; color: #721c24; font-weight:bold; background-color: #f8d7da; border:1px solid #f5c6cb; padding:10px; border-radius:4px;"><b>Внимание:</b> Во время обработки файлов произошли ошибки. Отображаемые данные могут быть неполными. Пожалуйста, проверьте сообщения выше.</p>
+    {% endif %}
+
+    <script>
+        document.getElementById('xml_file_input').addEventListener('change', function(event) {
+            const fileList = event.target.files;
+            const selectedFilesDiv = document.getElementById('selected_files');
+            selectedFilesDiv.innerHTML = ''; 
+
+            if (fileList.length > 0) {
+                const fileListTitle = document.createElement('h4');
+                fileListTitle.textContent = 'Выбранные файлы:';
+                selectedFilesDiv.appendChild(fileListTitle);
+
+                const fileListElement = document.createElement('ul');
+                for (let i = 0; i < fileList.length; i++) {
+                    const listItem = document.createElement('li');
+                    listItem.textContent = fileList[i].name;
+                    fileListElement.appendChild(listItem);
+                }
+                selectedFilesDiv.appendChild(fileListElement);
+            }
+        });
+        
+        const yearInputHTML = document.getElementById('year_input');
+        const defaultYearValue = "{{ target_report_year_for_title|default_if_none:'' }}";
+        if (yearInputHTML.value === '' && defaultYearValue !== '') {
+            yearInputHTML.value = defaultYearValue;
+        }
+    </script>
+</body>
+</html>
