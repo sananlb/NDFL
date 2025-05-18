@@ -62,7 +62,11 @@
             overflow-x: auto; 
         }
         .instrument-block h3 { border-bottom: 1px solid #eee; padding-bottom: 10px; }
-        .conversion-row td { background-color: #e6f7ff !important; font-style: italic;} /* Стиль для строки конвертации */
+        .conversion-row td { background-color: #e6f7ff !important; font-style: italic;}
+        .aggregated-trade-row td { /* Пример стиля для агрегированных строк */
+            /* background-color: #f0f8ff; */ 
+            /* font-style: italic; */
+        }
 
 
         #selected_files ul { list-style-type: disc; margin-left: 20px; padding-left: 0; margin-top: 5px; }
@@ -178,7 +182,7 @@
                         {% if first_event_wrapper.display_type == 'conversion_info' %}
                             <h3>История для: {{ first_event.new_ticker|default:first_event.new_isin }} (результат конвертации из {{ first_event.old_ticker|default:first_event.old_isin }})</h3>
                         {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                            <h3>Инструмент: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }} (Код: {{ grouping_isin }})</h3>
+                             <h3>Инструмент: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }} (Код: {% if first_event.isin %}{{ first_event.isin }}{% else %}{{ grouping_isin }}{% endif %})</h3>
                         {% else %}
                             <h3>История для ISIN: {{ grouping_isin }}</h3>
                         {% endif %}
@@ -190,7 +194,7 @@
                         <tr>
                             <th>Дата и время</th>
                             <th>ID</th>
-                            <th>Операция/Описание</th>
+                            <th>Операция</th>
                             <th>Инструмент</th>
                             <th>Цена</th> <th>Кол-во</th>
                             <th>Сумма</th> <th>Ком.</th>
@@ -200,10 +204,15 @@
                     </thead>
                     <tbody>
                         {% for event_wrapper in event_list %}
-                            {% with event=event_wrapper.event_details %} {# Используем event_details #}
+                            {% with event=event_wrapper.event_details %}
                                 {% if event_wrapper.display_type == 'trade' %}
-                                    <tr>
-                                        <td>{{ event.date|default:"-" }}</td>
+                                    <tr {% if event.is_aggregated %}class="aggregated-trade-row"{% endif %}>
+                                        <td>
+                                            {{ event.date|default:"-" }}
+                                            {% if event.is_aggregated %}
+                                                <small>(Aggregated)</small>
+                                            {% endif %}
+                                        </td>
                                         <td> {{ event.trade_id|default:"-" }}</td>
                                         <td>
                                             {% if event.operation|lower == 'buy' %}Покупка
@@ -220,7 +229,7 @@
                                     </tr>
                                 {% elif event_wrapper.display_type == 'conversion_info' %}
                                     <tr class="conversion-row">
-                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td> {# Используем datetime_obj из обертки #}
+                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                         <td>Конвертация ID: {{ event.corp_action_id|default:"N/A" }}</td>
                                         <td colspan="2"> 
                                             <strong>Конвертация акций</strong><br>
@@ -234,13 +243,13 @@
                                     </tr>
                                 {% elif event_wrapper.display_type == 'initial_holding' %}
                                     <tr>
-                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d H:i:s" }}</td> {# Используем datetime_obj из обертки #}
+                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d H:i:s" }}</td>
                                         <td>Начальный остаток</td>
                                         <td>Зачисление</td>
                                         <td>{{ event.isin }}</td>
-                                        <td class="numeric">{{ event.p|default:"-" }} {{ event.curr_c|default:"" }}</td> {# Цена из event_details (p) #}
-                                        <td class="numeric">{{ event.q|default:"-" }}</td> {# Количество из event_details (q) #}
-                                        <td class="numeric">Общ. стоим. {{ event.total_cost_rub_str|default:"-" }} RUB</td> {# Рассчитанная стоимость #}
+                                        <td class="numeric">{{ event.p|default:"-" }} {{ event.curr_c|default:"" }}</td>
+                                        <td class="numeric">{{ event.q|default:"-" }}</td>
+                                        <td class="numeric">Общ. стоим. {{ event.total_cost_rub_str|default:"-" }} RUB</td> {# Рассчитанная стоимость из НО, если есть #}
                                         <td>-</td>
                                         <td>Себест.: {{ event.total_cost_rub_str|default:"-" }}</td> {# Повторяем, как было, или можно убрать #}
                                         <td>{{ event.file_source|default:"-" }}</td>
@@ -252,15 +261,15 @@
                 </table>
             </div>
         {% empty %}
-            {% if request.session.run_processing_for_year is not None and not parsing_error_occurred %} {# Проверяем, был ли инициирован расчет #}
+            {% if request.session.run_processing_for_year is not None and not parsing_error_occurred %}
                  <div class="no-data-message">История операций по инструментам с продажами в целевом году ({{ target_report_year_for_title|default:"указанный" }}) не найдена или отсутствует.</div>
             {% endif %}
         {% endfor %}
-    {% elif request.session.run_processing_for_year is not None and not parsing_error_occurred %} {# Проверяем, был ли инициирован расчет #}
+    {% elif request.session.run_processing_for_year is not None and not parsing_error_occurred %}
         <div class="no-data-message">Нет данных для отображения. Возможно, не найдено инструментов с продажами в целевом году ({{ target_report_year_for_title|default:"указанный" }}), или для них нет истории операций.</div>
     {% endif %}
     
-    {% if parsing_error_occurred and request.session.run_processing_for_year is not None %} {# Показываем ошибку только если был запущен процесс #}
+    {% if parsing_error_occurred and request.session.run_processing_for_year is not None %}
         <p style="margin-top:20px; color: #721c24; font-weight:bold; background-color: #f8d7da; border:1px solid #f5c6cb; padding:10px; border-radius:4px;"><b>Внимание:</b> Во время обработки файлов произошли ошибки. Отображаемые данные могут быть неполными. Пожалуйста, проверьте сообщения выше.</p>
     {% endif %}
 
