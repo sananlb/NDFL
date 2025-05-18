@@ -3,34 +3,104 @@
 <head>
     <title>Загрузка XML отчетов</title>
     <style>
-        body { font-family: sans-serif; margin: 20px; line-height: 1.6; }
+        body { font-family: sans-serif; margin: 20px; line-height: 1.6; background-color: #f4f7f6; }
         h1, h2, h3, h4 { color: #333; }
+        .container { display: flex; flex-wrap: wrap; gap: 20px; }
+        .main-content { flex: 2; min-width: 200px;}
+        .sidebar { flex: 3; min-width: 300px; }
+
         .messages { list-style-type: none; padding: 0; margin-bottom: 20px; }
         .messages li { margin-bottom: 10px; padding: 10px 15px; border-radius: 4px; border: 1px solid transparent; }
         .messages li.success { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
         .messages li.error { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
         .messages li.warning { background-color: #fff3cd; color: #856404; border-color: #ffeeba; }
         .messages li.info { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
-        form div { margin-bottom: 15px; }
-        label { display: inline-block; min-width: 150px; font-weight: bold; }
-        input[type="number"], input[type="file"] { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-        button[type="submit"] { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
+        
+        .form-section {
+            border: 1px solid #ddd; 
+            padding: 20px; 
+            margin-bottom: 20px; 
+            border-radius: 5px; 
+            background-color: #ffffff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        .form-section h3 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #555}
+        input[type="number"], input[type="file"] { 
+            padding: 10px; 
+            border: 1px solid #ccc; 
+            border-radius: 4px; 
+            width: calc(100% - 22px); /* Учитываем padding и border */
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+        button[type="submit"] { 
+            padding: 12px 25px; 
+            background-color: #007bff; 
+            color: white; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 1em; 
+            transition: background-color 0.3s ease;
+        }
         button[type="submit"]:hover { background-color: #0056b3; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; table-layout: auto; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; word-wrap: break-word; }
-        th { background-color: #f2f2f2; font-weight: bold; white-space: nowrap; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; table-layout: auto; background-color: #fff; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; word-wrap: break-word; }
+        th { background-color: #e9ecef; font-weight: bold; white-space: nowrap; color: #495057; }
         td.numeric { text-align: right; }
-        .instrument-block { margin-bottom: 30px; border: 1px solid #ccc; padding: 20px; border-radius: 5px; background-color: #f9f9f9; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow-x: auto; }
-        #selected_files ul { list-style-type: disc; margin-left: 20px; padding-left: 0; }
+        
+        .instrument-block { 
+            margin-bottom: 30px; 
+            border: 1px solid #ccc; 
+            padding: 20px; 
+            border-radius: 5px; 
+            background-color: #ffffff; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+            overflow-x: auto; 
+        }
+        .instrument-block h3 { border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .conversion-row td { background-color: #e6f7ff !important; font-style: italic;} /* Стиль для строки конвертации */
+
+
+        #selected_files ul { list-style-type: disc; margin-left: 20px; padding-left: 0; margin-top: 5px; }
+        #selected_files h4 { margin-bottom: 5px; }
+
         .user-info { text-align: right; margin-bottom: 20px; padding-bottom:10px; border-bottom: 1px solid #eee; }
         .user-info a { color: #007bff; text-decoration: none; }
         .user-info a:hover { text-decoration: underline; }
-        .previously-uploaded-section { margin-top: 30px; margin-bottom:30px; padding:15px; border: 1px solid #e0e0e0; background-color:#fdfdfd; border-radius:5px;}
+        
+        .previously-uploaded-section { 
+            padding:20px; 
+            border: 1px solid #e0e0e0; 
+            background-color:#f0f0f0; 
+            border-radius:5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        .previously-uploaded-section h4 { margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px;}
         .previously-uploaded-section ul { list-style-type: none; padding-left: 0; }
-        .previously-uploaded-section li { background-color: #fff; border: 1px solid #eee; padding: 8px 12px; margin-bottom: 5px; border-radius: 3px; display: flex; justify-content: space-between; align-items: center; }
-        .previously-uploaded-section li .date { font-size: 0.85em; color: #777; }
+        .previously-uploaded-section li { 
+            background-color: #fff; 
+            border: 1px solid #eee; 
+            padding: 10px 15px; 
+            margin-bottom: 8px; 
+            border-radius: 4px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            font-size: 0.95em;
+        }
+        .previously-uploaded-section li .date { font-size: 0.85em; color: #777; margin-left: 10px; white-space: nowrap;}
+        
         .no-data-message { margin-top: 20px; padding: 15px; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 4px; text-align: center; color: #495057;}
-        .form-section {border: 1px solid #ddd; padding: 20px; margin-bottom: 20px; border-radius: 5px; background-color: #f9f9f9;}
+
+        /* Адаптивность */
+        @media (max-width: 768px) {
+            .container { flex-direction: column; }
+            .main-content, .sidebar { width: 100%; }
+        }
     </style>
 </head>
 <body>
@@ -52,111 +122,145 @@
         </ul>
     {% endif %}
 
-    <form method="post" enctype="multipart/form-data">
-        {% csrf_token %}
+    <div class="container">
+        <div class="main-content">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                
+                <div class="form-section">
+                    <h3>1. Загрузка отчетов брокера</h3>
+                    <div>
+                        <label for="xml_file_input">Файл(ы) XML для загрузки:</label>
+                        <input type="file" name="xml_file" id="xml_file_input" multiple>
+                    </div>
+                    <div id="selected_files" style="margin-top:10px; margin-bottom:15px;"></div>
+                    <button type="submit" name="action" value="upload_reports">Загрузить выбранные отчеты</button>
+                </div>
         
-        <div class="form-section">
-            <h3>1. Загрузка отчетов брокера</h3>
-            <div>
-                <label for="xml_file_input">Файл(ы) XML для загрузки:</label>
-                <input type="file" name="xml_file" id="xml_file_input" multiple>
-            </div>
-            <div id="selected_files" style="margin-top:10px; margin-bottom:15px;"></div>
-            <button type="submit" name="action" value="upload_reports">Загрузить выбранные отчеты</button>
+                <div class="form-section">
+                    <h3>2. Анализ и расчет сделок</h3>
+                    <div>
+                        <label for="year_input_process">Целевой год для анализа:</label>
+                        <input type="number" name="year_for_process" id="year_input_process" required placeholder="YYYY" value="{{ target_report_year_for_title|default_if_none:'' }}">
+                    </div>
+                    <button type="submit" name="action" value="process_trades">Рассчитать сделки за указанный год</button>
+                </div>
+            </form>
         </div>
 
-        {# Блок "Ранее загруженные отчеты" ПЕРЕМЕЩЕН СЮДА #}
-        {% if previously_uploaded_files %}
-        <div class="previously-uploaded-section">
-            <h4>Ранее загруженные вами отчеты:</h4>
-            <ul>
-                {% for file_entry in previously_uploaded_files %}
-                <li>
-                    <span>{{ file_entry.original_filename }} (Отчет за {{ file_entry.year }} год)</span>
-                    <span class="date">Загружен: {{ file_entry.uploaded_at|date:"d.m.Y H:i" }}</span>
-                </li>
-                {% endfor %}
-            </ul>
-        </div>
-        {% elif user.is_authenticated %}
-            {# Показываем этот блок, только если пользователь аутентифицирован и файлов нет #}
+        <div class="sidebar">
+            {% if user.is_authenticated %}
             <div class="previously-uploaded-section">
-                <p>Вы еще не загружали отчеты.</p>
-            </div>
-        {% endif %}
-
-        <div class="form-section">
-            <h3>2. Анализ и расчет сделок</h3>
-            <div>
-                <label for="year_input_process">Целевой год для анализа:</label>
-                <input type="number" name="year_for_process" id="year_input_process" required placeholder="YYYY" value="{{ target_report_year_for_title|default_if_none:'' }}">
-            </div>
-            <button type="submit" name="action" value="process_trades">Рассчитать сделки за указанный год</button>
-        </div>
-    </form>
-    
-    {# Блок "Ранее загруженные отчеты" УДАЛЕН ОТСЮДА #}
-
-
-    {% if instrument_trade_history %}
-        <h2>История сделок по инструментам (с продажами в {{ target_report_year_for_title|default:"указанный" }} год):</h2>
-        {% for issue_nb, trades_list in instrument_trade_history.items %}
-            <div class="instrument-block">
-                {% if trades_list %}
-                    {% with first_trade=trades_list.0 %} 
-                        <h3>Инструмент: {{ first_trade.instr_nm|default_if_none:"[Наименование не указано]" }} (Код: {{ issue_nb }}{% if first_trade.curr_c %} / Валюта: {{ first_trade.curr_c }}{% endif %})</h3>
-                    {% endwith %}
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Дата и время</th>
-                                <th>ID сделки (XML)</th>
-                                <th>Операция</th>
-                                <th>Тип</th>
-                                <th>Вид</th>
-                                <th>Цена</th>
-                                <th>Курс ЦБ (транз.)</th>
-                                <th>Кол-во</th>
-                                <th>Сумма</th> 
-                                <th>Комиссия</th> 
-                                <th>FIFO Затраты, RUB</th> 
-                                <th>Источник (файл)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for trade in trades_list %}
-                                <tr>
-                                    <td>{{ trade.date|default:"-" }}</td>
-                                    <td>{{ trade.trade_id|default:"-" }}</td>
-                                    <td>{{ trade.operation|default:"-" }}</td>
-                                    <td>{{ trade.instr_type|default:"-" }}</td>
-                                    <td>{{ trade.instr_kind|default:"-" }}</td>
-                                    <td class="numeric">{{ trade.p|default:"-" }}</td>
-                                    <td class="numeric">{{ trade.transaction_cbr_rate_str|default:"-" }}</td>
-                                    <td class="numeric">{{ trade.q|default:"-" }}</td>
-                                    <td class="numeric"><strong>{{ trade.summ|default:"-" }}</strong></td>
-                                    <td class="numeric">{{ trade.commission|default:"-" }}</td> 
-                                    <td class="numeric">{{ trade.fifo_cost_rub_str|default:"-" }}</td> 
-                                    <td>{{ trade.file_source|default:"-" }}</td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <h4>Ранее загруженные вами отчеты:</h4>
+                {% if previously_uploaded_files %}
+                    <ul>
+                        {% for file_entry in previously_uploaded_files %}
+                        <li>
+                            <span>{{ file_entry.original_filename }} (Отчет за {{ file_entry.year }} год)</span>
+                            <span class="date">Загружен: {{ file_entry.uploaded_at|date:"d.m.Y H:i" }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
                 {% else %}
-                    <h3>Инструмент (Код: {{ issue_nb }})</h3>
-                    <p>Для данного инструмента были зафиксированы продажи в целевом году, но исторические данные по сделкам отсутствуют или не найдены.</p>
+                    <p>Вы еще не загружали отчеты.</p>
                 {% endif %}
             </div>
-        {% empty %} 
-            {% if request.method == 'POST' and not parsing_error_occurred %}
-                 <div class="no-data-message">История сделок по инструментам с продажами в целевой год ({{ target_report_year_for_title|default:"указанный" }}) не найдена или отсутствует.</div>
+            {% endif %}
+        </div>
+    </div>
+    
+    {% if instrument_event_history %}
+        <h2>История операций по инструментам (с продажами в {{ target_report_year_for_title|default:"указанный" }} год):</h2>
+        {% for grouping_isin, event_list in instrument_event_history.items %}
+            <div class="instrument-block">
+                {% with first_event_wrapper=event_list.0 %}
+                    {% with first_event=first_event_wrapper.event_details %}
+                        {% if first_event_wrapper.display_type == 'conversion_info' %}
+                            <h3>История для: {{ first_event.new_ticker|default:first_event.new_isin }} (результат конвертации из {{ first_event.old_ticker|default:first_event.old_isin }})</h3>
+                        {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
+                            <h3>Инструмент: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }} (Код: {{ grouping_isin }})</h3>
+                        {% else %}
+                            <h3>История для ISIN: {{ grouping_isin }}</h3>
+                        {% endif %}
+                    {% endwith %}
+                {% endwith %}
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Дата и время</th>
+                            <th>ID</th>
+                            <th>Операция/Описание</th>
+                            <th>Инструмент</th>
+                            <th>Цена</th> <th>Кол-во</th>
+                            <th>Сумма</th> <th>Ком.</th>
+                            <th>FIFO Затраты, RUB</th>
+                            <th>Источник</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event_wrapper in event_list %}
+                            {% with event=event_wrapper.event_details %} {# Используем event_details #}
+                                {% if event_wrapper.display_type == 'trade' %}
+                                    <tr>
+                                        <td>{{ event.date|default:"-" }}</td>
+                                        <td> {{ event.trade_id|default:"-" }}</td>
+                                        <td>
+                                            {% if event.operation|lower == 'buy' %}Покупка
+                                            {% elif event.operation|lower == 'sell' %}Продажа
+                                            {% else %}{{ event.operation|default:"-" }}{% endif %}
+                                        </td>
+                                        <td>{{ event.instr_nm|default:event.isin }} ({{event.isin}})</td>
+                                        <td class="numeric">{{ event.p|default:"-" }} <small>{{ event.curr_c|default:"" }}</small></td>
+                                        <td class="numeric">{{ event.q|default:"-" }}</td>
+                                        <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
+                                        <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
+                                        <td class="numeric"><strong>{{ event.fifo_cost_rub_str|default:"-" }}</strong></td>
+                                        <td>{{ event.file_source|default:"-" }}</td>
+                                    </tr>
+                                {% elif event_wrapper.display_type == 'conversion_info' %}
+                                    <tr class="conversion-row">
+                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td> {# Используем datetime_obj из обертки #}
+                                        <td>Конвертация ID: {{ event.corp_action_id|default:"N/A" }}</td>
+                                        <td colspan="2"> 
+                                            <strong>Конвертация акций</strong><br>
+                                            Списано: {{ event.old_quantity_removed|default:'?' }} шт. {{ event.old_ticker|default:event.old_isin }} ({{event.old_isin}})<br>
+                                            Получено: {{ event.new_quantity_received|default:'?' }} шт. {{ event.new_ticker|default:event.new_isin }} ({{event.new_isin}})
+                                        </td>
+                                        <td colspan="3"><i>{{ event.ratio_comment|truncatechars:120 }}</i></td>
+                                        <td>-</td> 
+                                        <td>-</td> 
+                                        <td>{{ event.file_source|default:"-" }}</td>
+                                    </tr>
+                                {% elif event_wrapper.display_type == 'initial_holding' %}
+                                    <tr>
+                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d H:i:s" }}</td> {# Используем datetime_obj из обертки #}
+                                        <td>Начальный остаток</td>
+                                        <td>Зачисление</td>
+                                        <td>{{ event.isin }}</td>
+                                        <td class="numeric">{{ event.p|default:"-" }} {{ event.curr_c|default:"" }}</td> {# Цена из event_details (p) #}
+                                        <td class="numeric">{{ event.q|default:"-" }}</td> {# Количество из event_details (q) #}
+                                        <td class="numeric">Общ. стоим. {{ event.total_cost_rub_str|default:"-" }} RUB</td> {# Рассчитанная стоимость #}
+                                        <td>-</td>
+                                        <td>Себест.: {{ event.total_cost_rub_str|default:"-" }}</td> {# Повторяем, как было, или можно убрать #}
+                                        <td>{{ event.file_source|default:"-" }}</td>
+                                    </tr>
+                                {% endif %}
+                            {% endwith %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% empty %}
+            {% if request.session.run_processing_for_year is not None and not parsing_error_occurred %} {# Проверяем, был ли инициирован расчет #}
+                 <div class="no-data-message">История операций по инструментам с продажами в целевом году ({{ target_report_year_for_title|default:"указанный" }}) не найдена или отсутствует.</div>
             {% endif %}
         {% endfor %}
-    {% elif request.method == 'POST' and not parsing_error_occurred %}
-        <div class="no-data-message">Нет данных для отображения. Возможно, не найдено инструментов с продажами в целевом году ({{ target_report_year_for_title|default:"указанный" }}), или для них нет истории сделок.</div>
+    {% elif request.session.run_processing_for_year is not None and not parsing_error_occurred %} {# Проверяем, был ли инициирован расчет #}
+        <div class="no-data-message">Нет данных для отображения. Возможно, не найдено инструментов с продажами в целевом году ({{ target_report_year_for_title|default:"указанный" }}), или для них нет истории операций.</div>
     {% endif %}
     
-    {% if parsing_error_occurred and request.method == 'POST' %}
+    {% if parsing_error_occurred and request.session.run_processing_for_year is not None %} {# Показываем ошибку только если был запущен процесс #}
         <p style="margin-top:20px; color: #721c24; font-weight:bold; background-color: #f8d7da; border:1px solid #f5c6cb; padding:10px; border-radius:4px;"><b>Внимание:</b> Во время обработки файлов произошли ошибки. Отображаемые данные могут быть неполными. Пожалуйста, проверьте сообщения выше.</p>
     {% endif %}
 
@@ -165,14 +269,12 @@
             const fileList = event.target.files;
             const selectedFilesDiv = document.getElementById('selected_files');
             selectedFilesDiv.innerHTML = ''; 
-
             if (fileList.length > 0) {
                 const fileListTitle = document.createElement('h4');
                 fileListTitle.style.marginTop = '0px'; 
                 fileListTitle.style.marginBottom = '5px';
                 fileListTitle.textContent = 'Выбранные файлы:';
                 selectedFilesDiv.appendChild(fileListTitle);
-
                 const fileListElement = document.createElement('ul');
                 fileListElement.style.marginTop = '0px';
                 for (let i = 0; i < fileList.length; i++) {
