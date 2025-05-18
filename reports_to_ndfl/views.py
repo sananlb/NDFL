@@ -5,8 +5,9 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, date 
 from collections import defaultdict, deque
 import re
+import json 
 from django.contrib.auth.decorators import login_required
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, Context
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, Context 
 import logging
 
 from .models import UploadedXMLFile
@@ -42,17 +43,18 @@ def parse_year_from_date_end(xml_string_content):
     return None
 
 def _get_exchange_rate_for_date(request, currency_obj, target_date_obj, rate_purpose_message=""):
-    if not isinstance(target_date_obj, date):
-        logger.error(f"VIEW: Передана не дата в _get_exchange_rate_for_date: {target_date_obj} для {currency_obj.char_code} {rate_purpose_message}")
-        return None, False
+    if not isinstance(target_date_obj, date): # target_date_obj должна быть объектом date
+        logger.error(f"VIEW: Передана не дата в _get_exchange_rate_for_date: {target_date_obj} ({type(target_date_obj)}) для {currency_obj.char_code} {rate_purpose_message}")
+        return None, False, None 
+        
     exact_rate_obj = ExchangeRate.objects.filter(currency=currency_obj, date=target_date_obj).first()
-    if exact_rate_obj: return exact_rate_obj, True
+    if exact_rate_obj: return exact_rate_obj, True, exact_rate_obj.unit_rate
     
     cbr_date_str_to_fetch = target_date_obj.strftime('%d/%m/%Y')
     parsed_rates_list_from_service, actual_rates_date_from_cbr = fetch_daily_rates(cbr_date_str_to_fetch)
     if actual_rates_date_from_cbr:
         rate_on_target_date_after_fetch = ExchangeRate.objects.filter(currency=currency_obj, date=target_date_obj).first()
-        if rate_on_target_date_after_fetch: return rate_on_target_date_after_fetch, True
+        if rate_on_target_date_after_fetch: return rate_on_target_date_after_fetch, True, rate_on_target_date_after_fetch.unit_rate
         if actual_rates_date_from_cbr != target_date_obj:
             rate_data_for_alias_creation = None
             if parsed_rates_list_from_service:
@@ -66,19 +68,19 @@ def _get_exchange_rate_for_date(request, currency_obj, target_date_obj, rate_pur
                         defaults={'value': rate_data_for_alias_creation['value'], 'nominal': rate_data_for_alias_creation['nominal']}
                     )
                     if created: messages.info(request, f"Создан 'алиас' курса для {currency_obj.char_code} на {target_date_obj.strftime('%d.%m.%Y')} исп. данные от {actual_rates_date_from_cbr.strftime('%d.%m.%Y')}.")
-                    return aliased_rate, True
+                    return aliased_rate, True, aliased_rate.unit_rate
                 except KeyError as e_key: logger.error(f"KeyError при создании 'алиаса' ({e_key}) для {currency_obj.char_code} на {target_date_obj}. Данные: {rate_data_for_alias_creation}", exc_info=True)
                 except Exception as e_alias: logger.error(f"Ошибка при создании 'алиаса' курса для {currency_obj.char_code} на {target_date_obj}: {e_alias}", exc_info=True)
     
     final_fallback_rate = ExchangeRate.objects.filter(currency=currency_obj, date__lte=target_date_obj).order_by('-date').first()
     if final_fallback_rate:
         if final_fallback_rate.date != target_date_obj: messages.info(request, f"Для {currency_obj.char_code} на {target_date_obj.strftime('%d.%m.%Y')} {rate_purpose_message} используется ближайший курс от {final_fallback_rate.date.strftime('%d.%m.%Y')}.")
-        return final_fallback_rate, final_fallback_rate.date == target_date_obj
+        return final_fallback_rate, final_fallback_rate.date == target_date_obj, final_fallback_rate.unit_rate
     
     message_to_user = f"Курс для {currency_obj.char_code} на {target_date_obj.strftime('%d.%m.%Y')} {rate_purpose_message} не найден."
     if not actual_rates_date_from_cbr : message_to_user = f"Критическая ошибка при загрузке с ЦБ. {message_to_user}"; messages.error(request, message_to_user)
     else: messages.warning(request, message_to_user)
-    logger.warning(message_to_user); return None, False
+    logger.warning(message_to_user); return None, False, None
 
 def _parse_full_conversion_comment(comment_str):
     if not comment_str: return None
@@ -127,7 +129,7 @@ def _parse_and_validate_ca_node_on_demand(request, raw_ca_node_data, ca_nodes_fr
         return NOT_A_RELEVANT_CONVERSION_MARKER
 
     ca_date_str = raw_ca_node_data.get('date')
-    ca_datetime_obj = None # Будет date
+    ca_datetime_obj = None 
     if ca_date_str:
         try: 
             ca_datetime_obj = datetime.strptime(ca_date_str, '%Y-%m-%d').date()
@@ -272,7 +274,7 @@ def _apply_conversion_on_demand(request, target_isin, operation_date, buy_lots_d
 
 def _process_all_operations_for_fifo(request, operations_to_process, 
                                      full_trade_history_map_for_fifo_update, 
-                                     relevant_files_for_history,
+                                     relevant_files_for_history, 
                                      conversion_events_for_display_accumulator):
     global _processing_had_error
     buy_lots_deques = defaultdict(deque)
@@ -287,14 +289,13 @@ def _process_all_operations_for_fifo(request, operations_to_process,
         trade_dict_ref = op.get('original_trade_dict_ref') if op_type == 'trade' else None
         
         if op.get('operation_type') == 'buy' or op_type == 'initial_holding':
-            if op['quantity'] <= 0: continue # quantity здесь Decimal
-            if op_type == 'initial_holding': cost_in_rub = op['total_cost_rub'] # Decimal
+            if op['quantity'] <= 0: continue
+            if op_type == 'initial_holding': cost_in_rub = op['total_cost_rub'] 
             else: 
-                # price_per_share, quantity, commission здесь Decimal
                 cost_in_currency = (op['price_per_share'] * op['quantity']) + op['commission'] 
                 cost_in_rub = cost_in_currency
                 if op['currency'] != 'RUB':
-                    if op['cbr_rate_decimal'] is not None: # Decimal
+                    if op['cbr_rate_decimal'] is not None: 
                         cost_in_rub = (cost_in_currency * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                     else: 
                         if trade_dict_ref: trade_dict_ref['fifo_cost_rub_str'] = "Ошибка курса покупки (FIFO)"
@@ -310,11 +311,11 @@ def _process_all_operations_for_fifo(request, operations_to_process,
 
         elif op.get('operation_type') == 'sell':
             if not trade_dict_ref: logger.warning(f"FIFO: Пропуск продажи без trade_dict_ref: {op}"); continue
-            if op['quantity'] <= 0: # quantity здесь Decimal
+            if op['quantity'] <= 0: 
                 trade_dict_ref['fifo_cost_rub_str'] = "0.00 (нулевое кол-во)"; trade_dict_ref['fifo_cost_rub_decimal'] = Decimal(0); continue
             
             trade_dict_ref['fifo_cost_rub_str'] = None; trade_dict_ref['fifo_cost_rub_decimal'] = None
-            sell_q_to_cover = op['quantity'] # Decimal
+            sell_q_to_cover = op['quantity'] 
             final_cost_of_shares_sold_rub = Decimal(0)
             final_q_covered_by_fifo = Decimal(0)
             max_conversion_attempts = 7
@@ -350,9 +351,9 @@ def _process_all_operations_for_fifo(request, operations_to_process,
             
             if attempt_count >= max_conversion_attempts and sell_q_to_cover > Decimal('0.000001'):
                 logger.warning(f"FIFO: Достигнуто макс. число попыток ({max_conversion_attempts}) применения конвертаций для продажи {op.get('trade_id','N/A')} ({op_isin}). Непокрытое кол-во: {sell_q_to_cover}")
-            commission_sell_rub = op['commission'] # Decimal
+            commission_sell_rub = op['commission'] 
             if op['currency'] != 'RUB':
-                if op['cbr_rate_decimal'] is not None: # Decimal
+                if op['cbr_rate_decimal'] is not None: 
                     commission_sell_rub = (op['commission'] * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 else:
                     messages.error(request, f"Нет курса для расчета комиссии продажи {op.get('trade_id','N/A')} ({op_isin}).")
@@ -370,16 +371,14 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                 messages.warning(request, msg); logger.warning(msg)
                 trade_dict_ref['fifo_cost_rub_str'] = f"Частично: {total_fifo_expenses_rub:.2f} (для {final_q_covered_by_fifo} из {op['quantity']} шт.)"
 
-def _str_to_decimal_safe(val_str, field_name_for_log="", trade_id_for_log=""):
-    """Преобразует строку в Decimal, обрабатывая None и пустые строки как 0."""
-    if val_str is None:
-        return Decimal(0)
-    if isinstance(val_str, str) and not val_str.strip():
-        return Decimal(0)
+def _str_to_decimal_safe(val_str, field_name_for_log="", context_id_for_log=""):
+    if val_str is None: return Decimal(0)
+    if isinstance(val_str, str) and not val_str.strip(): return Decimal(0)
     try:
-        return Decimal(str(val_str)) # str() для обработки если val_str уже число
+        return Decimal(str(val_str))
     except InvalidOperation:
-        logger.error(f"Ошибка преобразования '{field_name_for_log}' в Decimal: '{val_str}' для trade_id: {trade_id_for_log}")
+        logger.error(f"Ошибка преобразования '{field_name_for_log}' в Decimal: '{val_str}' для ID/контекста: {context_id_for_log}")
+        _processing_had_error[0] = True 
         return Decimal(0)
 
 
@@ -389,11 +388,13 @@ def _process_and_get_trade_data(request, user, target_report_year):
 
     full_instrument_trade_history_for_fifo = defaultdict(list)
     trade_and_holding_ops = [] 
+    all_dividend_events_final_list = [] 
+    total_dividends_rub_for_year = Decimal(0)
     
     relevant_files_for_history = UploadedXMLFile.objects.filter(user=user, year__lte=target_report_year).order_by('year', 'uploaded_at')
     if not relevant_files_for_history.exists():
         messages.info(request, f"У вас нет загруженных файлов с годом отчета {target_report_year} или ранее для анализа истории.")
-        return {}, _processing_had_error[0]
+        return {}, [], Decimal(0), _processing_had_error[0]
 
     trade_detail_tags = ['trade_id', 'date', 'operation', 'instr_nm', 'instr_type', 'instr_kind', 'p', 'curr_c', 'q', 'summ', 'commission', 'issue_nb']
     
@@ -415,7 +416,12 @@ def _process_and_get_trade_data(request, user, target_report_year):
             _processing_had_error[0] = True
     
     processed_initial_holdings_file_ids = set()
+    dividend_events_in_current_file = {} 
+
     for file_instance in relevant_files_for_history:
+        dividend_events_in_current_file.clear()
+        is_target_year_file_for_dividends = (file_instance.year == target_report_year)
+
         try:
             with file_instance.xml_file.open('rb') as xml_file_content_stream:
                 content_bytes = xml_file_content_stream.read(); xml_string_loop = ""
@@ -437,56 +443,39 @@ def _process_and_get_trade_data(request, user, target_report_year):
                         if positions_el: 
                             for pos_node in positions_el.findall('node'): 
                                 try:
-                                    isin_el = pos_node.find('issue_nb') 
-                                    isin = isin_el.text.strip() if isin_el is not None and isin_el.text and isin_el.text.strip() != '-' else None
-                                    if not isin: 
-                                        instr_nm_log = pos_node.findtext('name', 'N/A').strip()
-                                        logger.info(f"Пропуск НО в {file_instance.original_filename} для '{instr_nm_log}': отсутствует или невалидный ISIN (в <issue_nb>).")
-                                        continue 
-                                    
+                                    isin_el = pos_node.find('issue_nb'); isin = isin_el.text.strip() if isin_el is not None and isin_el.text and isin_el.text.strip() != '-' else None
+                                    if not isin: instr_nm_log = pos_node.findtext('name', 'N/A').strip(); logger.info(f"Пропуск НО в {file_instance.original_filename} для '{instr_nm_log}': отсутствует ISIN."); continue 
                                     quantity = _str_to_decimal_safe(pos_node.findtext('q', '0'), 'q НО', isin)
                                     if quantity <= 0: continue
                                     bal_price_per_share_curr = _str_to_decimal_safe(pos_node.findtext('bal_price_a', '0'), 'bal_price_a НО', isin)
                                     currency_code = pos_node.findtext('curr', 'RUB').strip().upper()
-                                    rate_decimal_init = Decimal("1.0")
-                                    total_cost_rub_init = (quantity * bal_price_per_share_curr) # Будет Decimal
-                                    
+                                    rate_decimal_init = Decimal("1.0"); total_cost_rub_init = (quantity * bal_price_per_share_curr)
                                     if currency_code != 'RUB':
                                         currency_model_init = Currency.objects.filter(char_code=currency_code).first()
                                         if currency_model_init and earliest_report_start_datetime: 
-                                            rate_obj_init, _ = _get_exchange_rate_for_date(request, currency_model_init, earliest_report_start_datetime.date(), f"для НО {isin}")
-                                            if rate_obj_init and rate_obj_init.unit_rate is not None:
-                                                rate_decimal_init = rate_obj_init.unit_rate
+                                            _ , _, rate_val_init = _get_exchange_rate_for_date(request, currency_model_init, earliest_report_start_datetime.date(), f"для НО {isin}")
+                                            if rate_val_init is not None:
+                                                rate_decimal_init = rate_val_init
                                                 total_cost_rub_init = (quantity * bal_price_per_share_curr * rate_decimal_init).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                                             else: _processing_had_error[0] = True; messages.warning(request, f"Не найден курс для НО {isin} ({currency_code}) на {earliest_report_start_datetime.date().strftime('%d.%m.%Y') if earliest_report_start_datetime else 'N/A'}.")
                                         else: _processing_had_error[0] = True; messages.warning(request, f"Валюта {currency_code} для НО {isin} не найдена.")
-                                    
                                     op_details_dict_for_ref = {
                                         'date': earliest_report_start_datetime.strftime('%Y-%m-%d %H:%M:%S') if earliest_report_start_datetime else "N/A",
                                         'trade_id': f'INITIAL_{isin}', 'operation': 'initial_holding',
                                         'instr_nm': pos_node.findtext('name', isin).strip(), 
-                                        'isin': isin,
-                                        'p': bal_price_per_share_curr, # Decimal
-                                        'curr_c': currency_code, 
-                                        'q': quantity, # Decimal
-                                        'summ': quantity * bal_price_per_share_curr, # Decimal
-                                        'commission': Decimal(0), # Decimal
+                                        'isin': isin, 'p': bal_price_per_share_curr, 'curr_c': currency_code, 'q': quantity,
+                                        'summ': quantity * bal_price_per_share_curr, 'commission': Decimal(0),
                                         'transaction_cbr_rate_str': f"{rate_decimal_init:.4f}" if rate_decimal_init else "-",
-                                        'file_source': f"Нач. остаток из {file_instance.original_filename}",
-                                        'total_cost_rub_str': f"{total_cost_rub_init:.2f}" 
+                                        'file_source': f"Нач. остаток из {file_instance.original_filename}", 'total_cost_rub_str': f"{total_cost_rub_init:.2f}" 
                                     }
                                     trade_and_holding_ops.append({
-                                        'op_type': 'initial_holding', 
-                                        'datetime_obj': earliest_report_start_datetime, 
+                                        'op_type': 'initial_holding', 'datetime_obj': earliest_report_start_datetime, 
                                         'isin': isin, 'quantity': quantity, 'price_per_share': bal_price_per_share_curr,
                                         'total_cost_rub': total_cost_rub_init, 'commission': Decimal(0), 'currency': currency_code,
-                                        'cbr_rate_decimal': rate_decimal_init,
-                                        'original_trade_dict_ref': op_details_dict_for_ref,
-                                        'operation_type': 'buy', 
-                                        'file_source': op_details_dict_for_ref['file_source']
+                                        'cbr_rate_decimal': rate_decimal_init, 'original_trade_dict_ref': op_details_dict_for_ref,
+                                        'operation_type': 'buy', 'file_source': op_details_dict_for_ref['file_source']
                                     })
-                                    logger.info(f"Добавлен начальный остаток: {quantity} {isin} на {earliest_report_start_datetime.date() if earliest_report_start_datetime else 'N/A'} с RUB стоимостью {total_cost_rub_init}")
-                                except (AttributeError, ValueError, InvalidOperation) as e_init: # InvalidOperation уже обрабатывается в _str_to_decimal_safe
+                                except (AttributeError, ValueError) as e_init: 
                                      _processing_had_error[0] = True; logger.error(f"Ошибка парсинга НО в {file_instance.original_filename}: {e_init}", exc_info=True)
                         processed_initial_holdings_file_ids.add(file_instance.id)
 
@@ -496,90 +485,159 @@ def _process_and_get_trade_data(request, user, target_report_year):
                     if detailed_element:
                         for node_element in detailed_element.findall('node'):
                             trade_data_dict = {'file_source': f"{file_instance.original_filename} (за {file_instance.year})"}
-                            current_trade_id_for_log = node_element.findtext('trade_id', 'N/A') # Для логирования ошибок
-
+                            current_trade_id_for_log = node_element.findtext('trade_id', 'N/A') 
                             try:
-                                instr_type_el = node_element.find('instr_type')
-                                instr_type_val = instr_type_el.text.strip() if instr_type_el is not None and instr_type_el.text else None
+                                instr_type_el = node_element.find('instr_type'); instr_type_val = instr_type_el.text.strip() if instr_type_el is not None and instr_type_el.text else None
                                 if instr_type_val != '1': continue 
-                                
-                                isin_el = node_element.find('isin') 
-                                current_isin = isin_el.text.strip() if isin_el is not None and isin_el.text and isin_el.text.strip() != '-' else None
-                                if not current_isin:
-                                    date_log = node_element.findtext('date', 'N/A')
-                                    instr_nm_log = node_element.findtext('instr_nm', 'N/A')
-                                    logger.warning(f"Пропуск сделки с ценной бумагой (ID: {current_trade_id_for_log}, Дата: {date_log}, Инстр: {instr_nm_log}) в файле {file_instance.original_filename}: отсутствует или невалидный ISIN в теге <isin>.")
-                                    _processing_had_error[0] = True
-                                    continue
+                                isin_el = node_element.find('isin'); current_isin = isin_el.text.strip() if isin_el is not None and isin_el.text and isin_el.text.strip() != '-' else None
+                                if not current_isin: logger.warning(f"Пропуск сделки (ID: {current_trade_id_for_log}): нет ISIN."); _processing_had_error[0] = True; continue
                                 trade_data_dict['isin'] = current_isin
-                                
                                 for tag in trade_detail_tags: 
                                     data_el = node_element.find(tag)
                                     trade_data_dict[tag] = (data_el.text.strip() if data_el is not None and data_el.text is not None else None)
-                                
-                                # Преобразование ключевых числовых полей в Decimal
                                 trade_data_dict['p'] = _str_to_decimal_safe(trade_data_dict.get('p'), 'p', current_trade_id_for_log)
                                 trade_data_dict['q'] = _str_to_decimal_safe(trade_data_dict.get('q'), 'q', current_trade_id_for_log)
                                 trade_data_dict['summ'] = _str_to_decimal_safe(trade_data_dict.get('summ'), 'summ', current_trade_id_for_log)
                                 trade_data_dict['commission'] = _str_to_decimal_safe(trade_data_dict.get('commission'), 'commission', current_trade_id_for_log)
-                                
                                 op_datetime_obj = None 
                                 if trade_data_dict.get('date'):
                                     try: op_datetime_obj = datetime.strptime(trade_data_dict['date'], '%Y-%m-%d %H:%M:%S')
                                     except ValueError: _processing_had_error[0] = True; messages.warning(request, f"Некорректная дата сделки {current_trade_id_for_log} ({current_isin})."); continue
                                 if not op_datetime_obj: _processing_had_error[0] = True; messages.warning(request, f"Отсутствует дата для сделки {current_trade_id_for_log} ({current_isin})."); continue
-
-                                rate_decimal, rate_str = None, "-"
-                                currency_code = trade_data_dict.get('curr_c', '').strip().upper()
+                                rate_decimal, rate_str = None, "-"; currency_code = trade_data_dict.get('curr_c', '').strip().upper()
                                 if currency_code:
                                     if currency_code in ['RUB', 'РУБ', 'РУБ.']: rate_decimal, rate_str = Decimal("1.0000"), "1.0000"
                                     else:
                                         currency_model = Currency.objects.filter(char_code=currency_code).first()
                                         if currency_model:
-                                            rate_obj_trade, fetched_exactly = _get_exchange_rate_for_date(request, currency_model, op_datetime_obj.date(), f"для сделки {current_trade_id_for_log}")
-                                            if rate_obj_trade and rate_obj_trade.unit_rate is not None:
-                                                rate_decimal = rate_obj_trade.unit_rate; rate_str = f"{rate_decimal:.4f}"
+                                            _ , fetched_exactly, rate_val_trade = _get_exchange_rate_for_date(request, currency_model, op_datetime_obj.date(), f"для сделки {current_trade_id_for_log}")
+                                            if rate_val_trade is not None:
+                                                rate_decimal = rate_val_trade; rate_str = f"{rate_decimal:.4f}"
                                                 if not fetched_exactly: rate_str += " (ближ.)"
                                             else: _processing_had_error[0] = True; rate_str = "не найден"; messages.error(request, f"Курс {currency_code} не найден для сделки {current_trade_id_for_log} на {op_datetime_obj.date().strftime('%d.%m.%Y')}.")
                                         else: _processing_had_error[0] = True; rate_str = "валюта не найдена"; messages.error(request, f"Валюта {currency_code} не найдена для сделки {current_trade_id_for_log}.")
                                 trade_data_dict['transaction_cbr_rate_str'] = rate_str
                                 if currency_code != 'RUB' and rate_decimal is None: _processing_had_error[0] = True; logger.error(f"Пропуск сделки {current_trade_id_for_log} в FIFO (нет курса {currency_code})."); continue 
-                                
                                 full_instrument_trade_history_for_fifo[current_isin].append(trade_data_dict)
-
                                 op_for_processing = {
-                                    'op_type': 'trade', 
-                                    'datetime_obj': op_datetime_obj, 
-                                    'isin': current_isin,
-                                    'trade_id': trade_data_dict.get('trade_id'),
-                                    'operation_type': trade_data_dict.get('operation', '').strip().lower(),
-                                    'quantity': trade_data_dict['q'], # Decimal
-                                    'price_per_share': trade_data_dict['p'], # Decimal
-                                    'commission': trade_data_dict['commission'], # Decimal
-                                    'currency': currency_code,
-                                    'cbr_rate_decimal': rate_decimal, # Decimal or None
-                                    'original_trade_dict_ref': trade_data_dict, 
+                                    'op_type': 'trade', 'datetime_obj': op_datetime_obj, 'isin': current_isin,
+                                    'trade_id': trade_data_dict.get('trade_id'), 'operation_type': trade_data_dict.get('operation', '').strip().lower(),
+                                    'quantity': trade_data_dict['q'], 'price_per_share': trade_data_dict['p'], 
+                                    'commission': trade_data_dict['commission'], 'currency': currency_code,
+                                    'cbr_rate_decimal': rate_decimal, 'original_trade_dict_ref': trade_data_dict, 
                                     'file_source': trade_data_dict['file_source']
                                 }
                                 trade_and_holding_ops.append(op_for_processing)
-                            except Exception as e_node: # Общий обработчик для ошибок внутри цикла по node
-                                _processing_had_error[0] = True
-                                logger.error(f"Ошибка обработки узла сделки (ID: {current_trade_id_for_log}) в {file_instance.original_filename}: {e_node}", exc_info=True)
-                                messages.error(request, f"Ошибка данных для сделки ID: {current_trade_id_for_log} в файле {file_instance.original_filename}.")
-                                continue
+                            except Exception as e_node: 
+                                _processing_had_error[0] = True; logger.error(f"Ошибка обработки узла сделки (ID: {current_trade_id_for_log}) в {file_instance.original_filename}: {e_node}", exc_info=True)
+                                messages.error(request, f"Ошибка данных для сделки ID: {current_trade_id_for_log} в файле {file_instance.original_filename}."); continue
+                
+                if is_target_year_file_for_dividends:
+                    cash_in_outs_element = root.find('.//cash_in_outs')
+                    if cash_in_outs_element:
+                        for node_cio in cash_in_outs_element.findall('node'):
+                            try:
+                                cio_type = node_cio.findtext('type', '').strip().lower()
+                                cio_comment = node_cio.findtext('comment', '').strip()
+                                cio_id_for_log = node_cio.findtext('id', 'N/A_CIO')
+                                details_json_str_cio = node_cio.findtext('details')
+                                ca_id_from_details_cio = None
+                                if details_json_str_cio:
+                                    try: details_data_cio = json.loads(details_json_str_cio); ca_id_from_details_cio = details_data_cio.get('corporate_action_id')
+                                    except json.JSONDecodeError: pass
+                                if not ca_id_from_details_cio: ca_id_from_details_cio = node_cio.findtext('corporate_action_id', '').strip()
+
+                                if cio_type == 'dividend':
+                                    amount_val = _str_to_decimal_safe(node_cio.findtext('amount', '0'), 'dividend amount', cio_id_for_log)
+                                    if amount_val <= 0: continue
+                                    
+                                    payment_date_str = node_cio.findtext('pay_d', node_cio.findtext('datetime', '')) 
+                                    payment_date_obj = None
+                                    if payment_date_str:
+                                        try:
+                                            dt_part = payment_date_str.split(' ')[0]; payment_date_obj = datetime.strptime(dt_part, '%Y-%m-%d').date()
+                                        except ValueError: logger.warning(f"Некорректная дата выплаты дивиденда '{payment_date_str}' (ID {cio_id_for_log})"); continue
+                                    if not payment_date_obj or payment_date_obj.year != target_report_year: continue
+
+                                    ticker_cio = node_cio.findtext('ticker', '').strip()
+                                    currency_cio = node_cio.findtext('currency', 'RUB').strip().upper()
+                                    instr_name_cio = ticker_cio if ticker_cio else "Неизвестный инструмент"
+                                    match_comment_instr = re.search(r'Дивиденды по бумаге \((.*?)\s*\(([^)]+)\)\)', cio_comment)
+                                    if match_comment_instr:
+                                        instr_name_cio = match_comment_instr.group(1).strip()
+                                        if not ticker_cio: ticker_cio = match_comment_instr.group(2).strip()
+                                    
+                                    div_event_key = f"{ca_id_from_details_cio}_{payment_date_obj.isoformat()}" if ca_id_from_details_cio else f"{ticker_cio}_{payment_date_obj.isoformat()}_{amount_val}"
+                                    
+                                    if div_event_key not in dividend_events_in_current_file:
+                                        dividend_events_in_current_file[div_event_key] = {
+                                            'date': payment_date_obj, 'instrument_name': instr_name_cio, 'ticker': ticker_cio,
+                                            'amount': amount_val, 'tax_amount': Decimal(0), 
+                                            'currency': currency_cio, 'cbr_rate_str': "-", 'amount_rub': Decimal(0),
+                                            'file_source': f"{file_instance.original_filename} (за {file_instance.year})",
+                                            'corporate_action_id': ca_id_from_details_cio
+                                        }
+                                    else: dividend_events_in_current_file[div_event_key]['amount'] += amount_val
+                            except Exception as e_div_pre_parse: logger.error(f"Ошибка предварительного парсинга дивиденда (ID: {cio_id_for_log}) в {file_instance.original_filename}: {e_div_pre_parse}", exc_info=True)
+                        
+                        for node_cio in cash_in_outs_element.findall('node'):
+                            try:
+                                cio_type = node_cio.findtext('type', '').strip().lower()
+                                cio_comment = node_cio.findtext('comment', '').strip()
+                                cio_id_for_log = node_cio.findtext('id', 'N/A_CIO_Tax')
+                                details_json_str_cio = node_cio.findtext('details')
+                                ca_id_from_details_cio = None
+                                if details_json_str_cio:
+                                    try: details_data_cio = json.loads(details_json_str_cio); ca_id_from_details_cio = details_data_cio.get('corporate_action_id')
+                                    except json.JSONDecodeError: pass
+                                if not ca_id_from_details_cio: ca_id_from_details_cio = node_cio.findtext('corporate_action_id', '').strip()
+
+                                if cio_type == 'tax' and ("налог за корпоративное действие" in cio_comment.lower() or "tax for corporate action" in cio_comment.lower()):
+                                    tax_date_str = node_cio.findtext('pay_d', node_cio.findtext('datetime', ''))
+                                    tax_date_obj = None
+                                    if tax_date_str:
+                                        try: dt_part = tax_date_str.split(' ')[0]; tax_date_obj = datetime.strptime(dt_part, '%Y-%m-%d').date()
+                                        except ValueError: pass
+                                    if not tax_date_obj or tax_date_obj.year != target_report_year: continue
+                                    tax_amount_val = _str_to_decimal_safe(node_cio.findtext('amount', '0'), 'сумма налога', cio_id_for_log)
+                                    target_dividend_event = None
+                                    if ca_id_from_details_cio:
+                                        for key, div_event_entry in dividend_events_in_current_file.items():
+                                            if div_event_entry.get('corporate_action_id') == ca_id_from_details_cio:
+                                                if tax_date_obj and div_event_entry.get('date') and tax_date_obj >= div_event_entry.get('date') and (tax_date_obj - div_event_entry.get('date')).days < 30 :
+                                                    target_dividend_event = div_event_entry; break
+                                    if target_dividend_event: target_dividend_event['tax_amount'] += abs(tax_amount_val)
+                                    else: logger.warning(f"Не удалось связать налог (ID {cio_id_for_log}, CA_ID: {ca_id_from_details_cio}) с дивидендом.")
+                            except Exception as e_tax_parse: logger.error(f"Ошибка парсинга узла налога (ID: {cio_id_for_log}) в {file_instance.original_filename}: {e_tax_parse}", exc_info=True)
+                    
+                    all_dividend_events_final_list.extend(dividend_events_in_current_file.values())
+
         except ET.ParseError: _processing_had_error[0] = True; logger.warning(f"Ошибка парсинга XML: {file_instance.original_filename}", exc_info=True); messages.error(request, f"Ошибка парсинга XML в файле {file_instance.original_filename}.")
         except Exception as e: _processing_had_error[0] = True; logger.error(f"Ошибка обработки файла {file_instance.original_filename}: {e}", exc_info=True); messages.error(request, f"Неожиданная ошибка при обработке файла {file_instance.original_filename}.")
 
+    for div_event in all_dividend_events_final_list:
+        currency_code_final = div_event['currency']; payment_date_final = div_event['date']; ticker_final = div_event['ticker']
+        rate_val_div = Decimal('1.0') 
+        cbr_rate_str_for_event = "1.0000" # Для RUB или если курс не найден
+        if currency_code_final != 'RUB':
+            currency_model_f = Currency.objects.filter(char_code=currency_code_final).first()
+            if currency_model_f:
+                _, fetched_f, rate_val_fetched = _get_exchange_rate_for_date(request, currency_model_f, payment_date_final, f"дивиденд {ticker_final}")
+                if rate_val_fetched is not None:
+                    rate_val_div = rate_val_fetched
+                    cbr_rate_str_for_event = f"{rate_val_div:.4f}"
+                    if not fetched_f: cbr_rate_str_for_event += " (ближ.)"
+                else: cbr_rate_str_for_event = "не найден"
+            else: cbr_rate_str_for_event = "валюта?"
+        div_event['cbr_rate_str'] = cbr_rate_str_for_event
+        div_event['amount_rub'] = (div_event['amount'] * rate_val_div).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total_dividends_rub_for_year += div_event['amount_rub']
+
+
     conversion_events_for_display_accumulator = [] 
     trade_and_holding_ops.sort(key=lambda x: x.get('datetime_obj') or datetime.min)
-
     if trade_and_holding_ops:
-        _process_all_operations_for_fifo(
-            request, trade_and_holding_ops, 
-            full_instrument_trade_history_for_fifo, 
-            relevant_files_for_history, 
-            conversion_events_for_display_accumulator
-        )
+        _process_all_operations_for_fifo(request, trade_and_holding_ops, full_instrument_trade_history_for_fifo, relevant_files_for_history, conversion_events_for_display_accumulator)
 
     all_display_events = [] 
     for isin_key, trades_list_for_isin in full_instrument_trade_history_for_fifo.items():
@@ -588,35 +646,25 @@ def _process_and_get_trade_data(request, user, target_report_year):
             if trade_dict_updated_with_fifo.get('date'):
                 try: dt_obj = datetime.strptime(trade_dict_updated_with_fifo['date'], '%Y-%m-%d %H:%M:%S')
                 except ValueError: logger.warning(f"Некорректная дата в trade_dict_updated_with_fifo: {trade_dict_updated_with_fifo.get('date')}")
-            all_display_events.append({
-                'display_type': 'trade', 'datetime_obj': dt_obj, 
-                'event_details': trade_dict_updated_with_fifo, # Содержит Decimal поля
-                'isin_group_key': trade_dict_updated_with_fifo.get('isin') 
-            })
+            if trade_dict_updated_with_fifo.get('operation','').lower() == 'buy' and \
+               (trade_dict_updated_with_fifo.get('fifo_cost_rub_decimal') is None or trade_dict_updated_with_fifo.get('fifo_cost_rub_decimal') == Decimal(0)):
+                trade_dict_updated_with_fifo['fifo_cost_rub_str'] = None
+            all_display_events.append({'display_type': 'trade', 'datetime_obj': dt_obj, 'event_details': trade_dict_updated_with_fifo, 'isin_group_key': trade_dict_updated_with_fifo.get('isin')})
 
     processed_no_refs_ids = set() 
     for op in trade_and_holding_ops: 
         if op.get('op_type') == 'initial_holding' and op.get('original_trade_dict_ref'):
             ref_id_check = id(op['original_trade_dict_ref'])
             if ref_id_check not in processed_no_refs_ids:
-                all_display_events.append({
-                    'display_type': 'initial_holding', 'datetime_obj': op['datetime_obj'], 
-                    'event_details': op['original_trade_dict_ref'],  # Содержит Decimal поля
-                    'isin_group_key': op.get('isin')
-                })
+                op['original_trade_dict_ref']['fifo_cost_rub_str'] = None; op['original_trade_dict_ref']['fifo_cost_rub_decimal'] = None
+                all_display_events.append({'display_type': 'initial_holding', 'datetime_obj': op['datetime_obj'], 'event_details': op['original_trade_dict_ref'], 'isin_group_key': op.get('isin')})
                 processed_no_refs_ids.add(ref_id_check)
     
     for conv_event_data in conversion_events_for_display_accumulator: 
-        all_display_events.append({
-            'display_type': 'conversion_info', 'datetime_obj': conv_event_data['datetime_obj'], 
-            'event_details': conv_event_data,
-            'isin_group_key': conv_event_data.get('new_isin')
-        })
+        all_display_events.append({'display_type': 'conversion_info', 'datetime_obj': conv_event_data['datetime_obj'], 'event_details': conv_event_data, 'isin_group_key': conv_event_data.get('new_isin')})
     
-    # --- BEGIN NEW AGGREGATION LOGIC ---
     processed_events_for_aggregation = []
     loop_idx = 0 
-
     all_display_events.sort(key=lambda x: (
         x['event_details'].get('isin') if x.get('display_type') == 'trade' and x.get('event_details') else x.get('isin_group_key', ''), 
         (x.get('datetime_obj').date() if isinstance(x.get('datetime_obj'), datetime) else x.get('datetime_obj')) if x.get('display_type') == 'trade' and x.get('datetime_obj') else (x.get('datetime_obj') or date.min),
@@ -625,115 +673,65 @@ def _process_and_get_trade_data(request, user, target_report_year):
         x['event_details'].get('curr_c') if x.get('display_type') == 'trade' and x.get('event_details') else '', 
         (datetime.combine(x.get('datetime_obj'), datetime.min.time()) if isinstance(x.get('datetime_obj'), date) and not isinstance(x.get('datetime_obj'), datetime) else x.get('datetime_obj')) or datetime.min
     ))
-
     while loop_idx < len(all_display_events):
-        current_event_wrapper = all_display_events[loop_idx]
-        details = current_event_wrapper.get('event_details')
-        display_type = current_event_wrapper.get('display_type')
-
+        current_event_wrapper = all_display_events[loop_idx]; details = current_event_wrapper.get('event_details'); display_type = current_event_wrapper.get('display_type')
         if display_type == 'trade' and details and current_event_wrapper.get('datetime_obj'):
-            key_date_obj = current_event_wrapper.get('datetime_obj')
-            key_date_for_agg = key_date_obj.date() if isinstance(key_date_obj, datetime) else key_date_obj 
-
-            key_isin = details.get('isin')
-            key_price = details.get('p') # Должно быть Decimal из парсинга
-            key_operation = details.get('operation','').lower()
-            key_currency = details.get('curr_c')
-
-            trades_to_potentially_aggregate = [current_event_wrapper]
-            next_idx = loop_idx + 1 
+            key_date_obj = current_event_wrapper.get('datetime_obj'); key_date_for_agg = key_date_obj.date() if isinstance(key_date_obj, datetime) else key_date_obj 
+            key_isin = details.get('isin'); key_price = details.get('p'); key_operation = details.get('operation','').lower(); key_currency = details.get('curr_c')
+            trades_to_potentially_aggregate = [current_event_wrapper]; next_idx = loop_idx + 1 
             while next_idx < len(all_display_events):
-                next_event_wrapper = all_display_events[next_idx]
-                next_details = next_event_wrapper.get('event_details')
-                next_display_type = next_event_wrapper.get('display_type')
-                
-                next_datetime_obj = next_event_wrapper.get('datetime_obj')
-                next_date_for_agg = None
-                if next_datetime_obj:
-                    next_date_for_agg = next_datetime_obj.date() if isinstance(next_datetime_obj, datetime) else next_datetime_obj
-
-                if (next_display_type == 'trade' and next_details and
-                    next_date_for_agg == key_date_for_agg and 
-                    next_details.get('isin') == key_isin and
-                    next_details.get('p') == key_price and 
-                    next_details.get('operation','').lower() == key_operation and
-                    next_details.get('curr_c') == key_currency):
-                    trades_to_potentially_aggregate.append(next_event_wrapper)
-                    next_idx += 1
-                else:
-                    break
-
+                next_event_wrapper = all_display_events[next_idx]; next_details = next_event_wrapper.get('event_details'); next_display_type = next_event_wrapper.get('display_type')
+                next_datetime_obj = next_event_wrapper.get('datetime_obj'); next_date_for_agg = None
+                if next_datetime_obj: next_date_for_agg = next_datetime_obj.date() if isinstance(next_datetime_obj, datetime) else next_datetime_obj
+                if (next_display_type == 'trade' and next_details and next_date_for_agg == key_date_for_agg and 
+                    next_details.get('isin') == key_isin and next_details.get('p') == key_price and 
+                    next_details.get('operation','').lower() == key_operation and next_details.get('curr_c') == key_currency):
+                    trades_to_potentially_aggregate.append(next_event_wrapper); next_idx += 1
+                else: break
             if len(trades_to_potentially_aggregate) > 1:
-                first_trade_wrapper = trades_to_potentially_aggregate[0]
-                combined_details = first_trade_wrapper['event_details'].copy()
-                
-                total_q = Decimal(0)
-                total_summ = Decimal(0)
-                total_commission = Decimal(0)
-                total_fifo_cost_rub = Decimal(0) 
+                first_trade_wrapper = trades_to_potentially_aggregate[0]; combined_details = first_trade_wrapper['event_details'].copy()
+                total_q, total_summ, total_commission, total_fifo_cost_rub = Decimal(0), Decimal(0), Decimal(0), Decimal(0)
                 trade_ids_list = []
-
                 for trade_wrapper_item in trades_to_potentially_aggregate:
                     detail_item = trade_wrapper_item['event_details']
-                    # Поля 'q', 'summ', 'commission' должны быть Decimal на этом этапе
-                    total_q += detail_item.get('q', Decimal(0)) 
-                    total_summ += detail_item.get('summ', Decimal(0))
-                    total_commission += detail_item.get('commission', Decimal(0))
-                    
+                    total_q += detail_item.get('q', Decimal(0)); total_summ += detail_item.get('summ', Decimal(0)); total_commission += detail_item.get('commission', Decimal(0))
                     fifo_cost_val = detail_item.get('fifo_cost_rub_decimal', Decimal(0)) 
-                    if not isinstance(fifo_cost_val, Decimal): # Доп. проверка, хотя должно быть Decimal
-                        fifo_cost_val = _str_to_decimal_safe(fifo_cost_val, 'fifo_cost_rub_decimal aggregation', detail_item.get('trade_id'))
+                    if not isinstance(fifo_cost_val, Decimal): fifo_cost_val = _str_to_decimal_safe(fifo_cost_val, 'fifo_cost_rub_decimal aggregation', detail_item.get('trade_id'))
                     total_fifo_cost_rub += fifo_cost_val
                     trade_ids_list.append(str(detail_item.get('trade_id', '')))
-                
-                combined_details['q'] = total_q
-                combined_details['summ'] = total_summ
-                combined_details['commission'] = total_commission
-                combined_details['fifo_cost_rub_decimal'] = total_fifo_cost_rub
-                combined_details['fifo_cost_rub_str'] = f"{total_fifo_cost_rub:.2f}"
-                
-                aggregated_id_display_count = 3
-                aggregated_id_str = ", ".join(filter(None, trade_ids_list[:aggregated_id_display_count]))
-                if len(trade_ids_list) > aggregated_id_display_count:
-                    aggregated_id_str += "..."
+                combined_details['q'] = total_q; combined_details['summ'] = total_summ; combined_details['commission'] = total_commission; combined_details['fifo_cost_rub_decimal'] = total_fifo_cost_rub
+                if combined_details.get('operation','').lower() == 'sell': combined_details['fifo_cost_rub_str'] = f"{total_fifo_cost_rub:.2f}"
+                elif total_fifo_cost_rub == Decimal(0) and combined_details.get('operation','').lower() == 'buy': combined_details['fifo_cost_rub_str'] = None; combined_details['fifo_cost_rub_decimal'] = None 
+                else: combined_details['fifo_cost_rub_str'] = f"{total_fifo_cost_rub:.2f}" if total_fifo_cost_rub != Decimal(0) else None
+                aggregated_id_display_count = 3; aggregated_id_str = ", ".join(filter(None, trade_ids_list[:aggregated_id_display_count]))
+                if len(trade_ids_list) > aggregated_id_display_count: aggregated_id_str += "..."; 
                 combined_details['trade_id'] = f"Aggregated ({len(trade_ids_list)} trades): {aggregated_id_str}"
                 combined_details['is_aggregated'] = True
-                
-                aggregated_wrapper = {
-                    'display_type': 'trade',
-                    'datetime_obj': first_trade_wrapper['datetime_obj'], 
-                    'event_details': combined_details,
-                    'isin_group_key': combined_details.get('isin') 
-                }
-                processed_events_for_aggregation.append(aggregated_wrapper)
-                loop_idx = next_idx 
-            else:
+                aggregated_wrapper = {'display_type': 'trade', 'datetime_obj': first_trade_wrapper['datetime_obj'], 'event_details': combined_details, 'isin_group_key': combined_details.get('isin')}
+                processed_events_for_aggregation.append(aggregated_wrapper); loop_idx = next_idx 
+            else: 
                 if current_event_wrapper.get('event_details'): 
                     current_event_wrapper['event_details']['is_aggregated'] = False
-                processed_events_for_aggregation.append(current_event_wrapper)
-                loop_idx += 1
+                    if current_event_wrapper['event_details'].get('operation','').lower() == 'buy' and \
+                       (current_event_wrapper['event_details'].get('fifo_cost_rub_decimal') is None or current_event_wrapper['event_details'].get('fifo_cost_rub_decimal') == Decimal(0)):
+                        current_event_wrapper['event_details']['fifo_cost_rub_str'] = None
+                processed_events_for_aggregation.append(current_event_wrapper); loop_idx += 1
         else:
-            if details: 
-                 details['is_aggregated'] = False
-            processed_events_for_aggregation.append(current_event_wrapper)
-            loop_idx += 1
-            
+            if details: details['is_aggregated'] = False
+            processed_events_for_aggregation.append(current_event_wrapper); loop_idx += 1
     all_display_events = processed_events_for_aggregation
-    # --- END NEW AGGREGATION LOGIC ---
 
     all_display_events.sort(key=lambda x: (
         (datetime.combine(x.get('datetime_obj'), datetime.min.time()) if isinstance(x.get('datetime_obj'), date) and not isinstance(x.get('datetime_obj'), datetime) else x.get('datetime_obj')) or datetime.min,
-        0 if x.get('display_type') == 'initial_holding' else \
-        (1 if x.get('display_type') == 'trade' and x.get('event_details') and x['event_details'].get('operation','').lower() == 'buy' else \
-        (2 if x.get('display_type') == 'conversion_info' else 3))
+        0 if x.get('display_type') == 'initial_holding' else (1 if x.get('display_type') == 'trade' and x.get('event_details') and x['event_details'].get('operation','').lower() == 'buy' else (2 if x.get('display_type') == 'conversion_info' else 3))
     ))
     
     instruments_with_sales_in_target_year = set()
-    files_for_target_report_year = UploadedXMLFile.objects.filter(user=user, year=target_report_year)
-    if files_for_target_report_year.exists():
-        for file_instance in files_for_target_report_year:
+    files_for_sales_scan = UploadedXMLFile.objects.filter(user=user, year=target_report_year)
+    if files_for_sales_scan.exists():
+        for file_instance_scan in files_for_sales_scan: 
             try:
-                with file_instance.xml_file.open('rb') as xml_file_content_stream:
+                with file_instance_scan.xml_file.open('rb') as xml_file_content_stream: 
                     content_bytes = xml_file_content_stream.read(); xml_string_loop = ""
                     try: xml_string_loop = content_bytes.decode('utf-8')
                     except UnicodeDecodeError: xml_string_loop = content_bytes.decode('windows-1251', errors='replace')
@@ -745,90 +743,65 @@ def _process_and_get_trade_data(request, user, target_report_year):
                             for node_element in detailed_element.findall('node'):
                                 instr_type_el_sale = node_element.find('instr_type')
                                 if instr_type_el_sale is None or instr_type_el_sale.text != '1': continue
-
-                                operation_el = node_element.find('operation')
-                                isin_el_sale = node_element.find('isin') 
+                                operation_el = node_element.find('operation'); isin_el_sale = node_element.find('isin') 
                                 isin_to_check_sale = isin_el_sale.text.strip() if isin_el_sale is not None and isin_el_sale.text and isin_el_sale.text.strip() != '-' else None
-
-                                if (operation_el is not None and operation_el.text and operation_el.text.strip().lower() == 'sell' and
-                                    isin_to_check_sale):
+                                if (operation_el is not None and operation_el.text and operation_el.text.strip().lower() == 'sell' and isin_to_check_sale):
                                     instruments_with_sales_in_target_year.add(isin_to_check_sale)
             except Exception as e_sales_scan: _processing_had_error[0] = True; logger.error(f"Ошибка сканирования продаж: {e_sales_scan}", exc_info=True)
 
     final_instrument_event_history = defaultdict(list)
-    conversion_map_old_to_new = {}
-    conversion_map_new_to_old = {} 
-    processed_conversion_ids_for_map = set()
-    
+    conversion_map_old_to_new = {}; conversion_map_new_to_old = {}; processed_conversion_ids_for_map = set()
     temp_conversion_events_for_map = sorted(
         [evt_wrapper for evt_wrapper in all_display_events if evt_wrapper.get('display_type') == 'conversion_info'],
         key=lambda x: x.get('datetime_obj') or date.min 
     )
-
     for event_wrapper in temp_conversion_events_for_map:
         event = event_wrapper.get('event_details')
         if event and event.get('corp_action_id') not in processed_conversion_ids_for_map:
-            old_i = event.get('old_isin')
-            new_i = event.get('new_isin')
-            if old_i and new_i : 
-                conversion_map_old_to_new[old_i] = new_i 
-                conversion_map_new_to_old[new_i] = old_i
-                processed_conversion_ids_for_map.add(event['corp_action_id'])
+            old_i = event.get('old_isin'); new_i = event.get('new_isin')
+            if old_i and new_i : conversion_map_old_to_new[old_i] = new_i; conversion_map_new_to_old[new_i] = old_i; processed_conversion_ids_for_map.add(event['corp_action_id'])
 
     relevant_isins_for_display = set()
     for sold_isin in instruments_with_sales_in_target_year:
-        relevant_isins_for_display.add(sold_isin)
-        temp_isin = sold_isin
+        relevant_isins_for_display.add(sold_isin); temp_isin = sold_isin
         while temp_isin in conversion_map_new_to_old:
             prev_isin = conversion_map_new_to_old[temp_isin]
             if prev_isin == temp_isin: break 
-            relevant_isins_for_display.add(prev_isin)
-            temp_isin = prev_isin
+            relevant_isins_for_display.add(prev_isin); temp_isin = prev_isin
         temp_isin = sold_isin
         while temp_isin in conversion_map_old_to_new:
             next_isin = conversion_map_old_to_new[temp_isin]
             if next_isin == temp_isin: break
-            relevant_isins_for_display.add(next_isin)
-            temp_isin = next_isin
+            relevant_isins_for_display.add(next_isin); temp_isin = next_isin
             
     for event_data_wrapper in all_display_events: 
-        details = event_data_wrapper.get('event_details')
-        display_type = event_data_wrapper.get('display_type')
-        
+        details = event_data_wrapper.get('event_details'); display_type = event_data_wrapper.get('display_type')
         current_event_isin = None
         if details: 
-            if display_type == 'trade' or display_type == 'initial_holding':
-                current_event_isin = details.get('isin')
-            elif display_type == 'conversion_info':
-                current_event_isin = details.get('new_isin')
-        
+            if display_type == 'trade' or display_type == 'initial_holding': current_event_isin = details.get('isin')
+            elif display_type == 'conversion_info': current_event_isin = details.get('new_isin')
         if not current_event_isin:
-            log_id = "N/A"
+            log_id = "N/A"; 
             if details: log_id = details.get('trade_id', details.get('corp_action_id', 'Details available but no ID'))
-            logger.warning(f"Пропуск события без основного ISIN при финальной группировке: {log_id}")
-            continue
-
+            logger.warning(f"Пропуск события без основного ISIN при финальной группировке: {log_id}"); continue
         grouping_key_isin = current_event_isin
-        while grouping_key_isin in conversion_map_old_to_new and \
-              conversion_map_old_to_new[grouping_key_isin] != grouping_key_isin:
+        while grouping_key_isin in conversion_map_old_to_new and conversion_map_old_to_new[grouping_key_isin] != grouping_key_isin:
              grouping_key_isin = conversion_map_old_to_new[grouping_key_isin]
-
         should_display_this_event = False
         if current_event_isin in relevant_isins_for_display: should_display_this_event = True
         elif grouping_key_isin in relevant_isins_for_display: should_display_this_event = True
-        elif display_type == 'conversion_info' and details and details.get('old_isin') in relevant_isins_for_display:
-            should_display_this_event = True
-            
-        if should_display_this_event: 
-            final_instrument_event_history[grouping_key_isin].append(event_data_wrapper)
+        elif display_type == 'conversion_info' and details and details.get('old_isin') in relevant_isins_for_display: should_display_this_event = True
+        if should_display_this_event: final_instrument_event_history[grouping_key_isin].append(event_data_wrapper)
 
     final_instrument_event_history = {k: v for k, v in final_instrument_event_history.items() if v}
-    if not final_instrument_event_history and (trade_and_holding_ops or conversion_events_for_display_accumulator) and instruments_with_sales_in_target_year:
-         messages.info(request, f"Для инструментов с продажами в {target_report_year} году не найдено соответствующей истории сделок или конвертаций для отображения (после финальной фильтрации).")
-    elif not final_instrument_event_history and instruments_with_sales_in_target_year:
-         messages.warning(request, f"Найдены продажи в {target_report_year} для {list(instruments_with_sales_in_target_year)}, но не удалось собрать историю для них.")
+    all_dividend_events_final_list.sort(key=lambda x: (x.get('date') or date.min, x.get('instrument_name', '')))
+    
+    if not final_instrument_event_history and not all_dividend_events_final_list and instruments_with_sales_in_target_year:
+         messages.warning(request, f"Найдены продажи в {target_report_year} для {list(instruments_with_sales_in_target_year)}, но не удалось собрать историю операций или дивидендов для них.")
+    elif not final_instrument_event_history and not all_dividend_events_final_list and not instruments_with_sales_in_target_year and UploadedXMLFile.objects.filter(user=user, year=target_report_year).exists():
+        messages.info(request, f"В отчетах за {target_report_year} год не найдено продаж по ценным бумагам и не найдено дивидендов для отображения.")
 
-    return final_instrument_event_history, _processing_had_error[0]
+    return final_instrument_event_history, all_dividend_events_final_list, total_dividends_rub_for_year, _processing_had_error[0] # Возвращаем total_dividends_rub_for_year
 
 @login_required
 def upload_xml_file(request):
@@ -836,15 +809,14 @@ def upload_xml_file(request):
     context = {
         'target_report_year_for_title': None, 
         'instrument_event_history': {},
+        'dividend_history': [], 
+        'total_dividends_rub': Decimal(0), 
         'parsing_error_occurred': False,
         'previously_uploaded_files': UploadedXMLFile.objects.filter(user=user).order_by('-year', '-uploaded_at')
     }
-
     context['target_report_year_for_title'] = request.session.get('last_target_year', None)
-
     if request.method == 'POST':
         action = request.POST.get('action')
-        
         if action == 'process_trades':
             year_str_from_form = request.POST.get('year_for_process')
             if not year_str_from_form:
@@ -854,16 +826,13 @@ def upload_xml_file(request):
                 target_report_year = int(year_str_from_form)
                 request.session['last_target_year'] = target_report_year 
                 request.session['run_processing_for_year'] = target_report_year 
-            except ValueError:
-                messages.error(request, 'Некорректный формат целевого года в форме.')
+            except ValueError: messages.error(request, 'Некорректный формат целевого года в форме.')
             return redirect('upload_xml_file')
-
         elif action == 'upload_reports':
             uploaded_files_from_form = request.FILES.getlist('xml_file')
             if not uploaded_files_from_form:
                 messages.error(request, 'Пожалуйста, выберите хотя бы один файл для загрузки.')
                 return redirect('upload_xml_file')
-
             parsing_error_in_upload_phase = False
             for uploaded_file_from_form in uploaded_files_from_form:
                 original_name = uploaded_file_from_form.name; xml_string = ""; file_year_from_xml = None
@@ -888,21 +857,18 @@ def upload_xml_file(request):
                 except Exception as e:
                     messages.error(request, f"Ошибка при первичной обработке файла {original_name}: {e}. Файл пропущен.")
                     parsing_error_in_upload_phase = True; logger.error(f"Ошибка при первичной обработке файла {original_name}: {e}", exc_info=True)
-            
-            if parsing_error_in_upload_phase:
-                messages.warning(request, "При загрузке некоторых файлов возникли ошибки.")
+            if parsing_error_in_upload_phase: messages.warning(request, "При загрузке некоторых файлов возникли ошибки.")
             return redirect('upload_xml_file')
         else:
             messages.error(request, "Неизвестное или отсутствующее действие в запросе.")
             return redirect('upload_xml_file')
-            
     else: 
         year_to_process = request.session.pop('run_processing_for_year', None)
-
         if year_to_process is not None:
             context['target_report_year_for_title'] = year_to_process 
-            instrument_event_history, parsing_error_current_run = _process_and_get_trade_data(request, user, year_to_process)
+            instrument_event_history, dividend_events, total_dividends_rub, parsing_error_current_run = _process_and_get_trade_data(request, user, year_to_process)
             context['instrument_event_history'] = instrument_event_history
+            context['dividend_history'] = dividend_events 
+            context['total_dividends_rub'] = total_dividends_rub 
             context['parsing_error_occurred'] = parsing_error_current_run
-        
     return render(request, 'reports_to_ndfl/upload.html', context)
