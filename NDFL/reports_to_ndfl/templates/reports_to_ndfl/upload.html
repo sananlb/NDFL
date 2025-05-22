@@ -268,7 +268,7 @@
         <div class="content-block">
             <h2>Детализация прочих брокерских комиссий за {{ target_report_year_for_title|default:"указанный" }} год</h2>
 
-            {# --- ОТЛАДОЧНЫЙ ВЫВОД (ОСТАВЬТЕ ЭТО!) --- #}
+            {% comment %} {# --- ОТЛАДОЧНЫЙ ВЫВОД (ОСТАВЬТЕ ЭТО!) --- #}
             <div style="background-color: #f0f0f0; border: 1px dashed #ccc; padding: 10px; margin: 10px 0; font-size: 0.8em;">
                 <p><strong>DEBUGGING OUTPUT (из upload.html):</strong></p>
                 <p>dividend_commissions (структура): <code>{ "Категория (Тикер)": {'amount_by_currency': {'USD': Сумма, ...}, 'amount_rub': СуммаRUB, 'details': [...]}, ... }</code></p>
@@ -279,7 +279,7 @@
                 <hr>
                 <p>total_other_commissions_rub: {{ total_other_commissions_rub|default_if_none:"0.00"|safe }}</p>
             </div>
-            {# --- КОНЕЦ ОТЛАДОЧНОГО ВЫВОДА --- #}
+            {# --- КОНЕЦ ОТЛАДОЧНОГО ВЫВОДА --- #} {% endcomment %}
 
             {# ----- Комиссии, связанные с дивидендами (ИСПРАВЛЕНО)----- #}
             <h4>Комиссии, связанные с дивидендами:</h4>
@@ -313,7 +313,7 @@
                                                     {{ detail.date }}: {{ detail.amount|floatformat:2 }} {{ detail.currency }}
                                                     (<strong>{{ detail.amount_rub|floatformat:2 }} RUB</strong>)
                                                     {% if detail.comment %} - <i>{{ detail.comment|truncatechars:70 }}</i>{% endif %}
-                                                    <br><small>(Файл: {{ detail.source_file }}; ID транз.: {{ detail.transaction_id }})</small>
+                                                    {% comment %} <br><small>(Файл: {{ detail.source_file }}; ID транз.: {{ detail.transaction_id }})</small> {% endcomment %}
                                                 </li>
                                             {% endfor %}
                                         </ul>
@@ -332,11 +332,11 @@
             {% else %}
                  <p>Комиссии, связанные с дивидендами, не найдены (данные отсутствуют).</p>
             {% endif %}
-
+            <br>
             {# ----- Прочие комиссии ----- #}
-            <h4 style="margin-top: 20px;">Прочие комиссии (не учтенные в сделках продажи и не связанные с дивидендами):</h4>
+            <h4 style="margin-top: 20px;">Прочие комиссии:</h4>
             {% if total_other_commissions_rub > 0 %}
-                 <p><small>Общая сумма прочих комиссий: {{ total_other_commissions_rub|floatformat:2 }} RUB</p></small>
+                 <p><h4>Общая сумма прочих комиссий: {{ total_other_commissions_rub|floatformat:2 }} RUB</p></h4>
             {% endif %}
 
             {% if other_commissions %}
@@ -346,7 +346,7 @@
                             <th>Категория</th>
                             <th>Суммы в валютах</th>
                             <th class="numeric">Общая сумма (RUB)</th>
-                            {# Если нужна детализация для other_commissions, можно добавить столбец #}
+                            <th>Детализация</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -357,28 +357,22 @@
                                 {% for currency_code, amount_val in data.currencies.items %}
                                     {% if amount_val > 0 %}
                                         {{ amount_val|floatformat:2 }} {{ currency_code }}<br>
-                                        {# Если хотите показывать эквивалент в RUB для каждой валюты здесь,
-                                           потребуется изменить структуру data.currencies или data.raw_events
-                                           чтобы легко сопоставить суммы в валюте с их RUB эквивалентами из raw_events.
-                                           Либо суммировать event.amount_rub из raw_events для данной currency_code.
-                                           Текущий вывод RUB для каждой валюты в data.raw_events был бы слишком громоздким тут.
-                                           Проще показывать общую сумму по категории в RUB, что уже делается.
-                                        #}
+                
                                     {% endif %}
                                 {% empty %}
                                     Нет данных
                                 {% endfor %}
                             </td>
                             <td class="numeric" style="font-weight: bold;">{{ data.total_rub|floatformat:2 }}</td>
-                            {# Пример детализации, если есть data.raw_events и нужно:
+                           
                             <td>
                                 <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
                                 {% for event in data.raw_events %}
-                                    <li>{{ event.date|date:"Y-m-d" }}: {{event.amount|floatformat:2}} {{event.currency}} ({{event.amount_rub|floatformat:2}} RUB) - {{event.source}}</li>
+                                    <li>{{ event.date|date:"Y-m-d" }}: {{event.amount|floatformat:2}} {{event.currency}} ({{event.amount_rub|floatformat:2}} RUB)</li>
                                 {% endfor %}
                                 </ul>
                             </td>
-                            #}
+                            
                         </tr>
                     {% empty %}
                         <tr>
