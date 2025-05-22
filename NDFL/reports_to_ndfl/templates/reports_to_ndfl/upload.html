@@ -61,10 +61,10 @@
             box-shadow: 0 2px 5px rgba(0,0,0,0.05);
             overflow-x: auto;
         }
-        .content-block h3 { 
+        .content-block h3 {
              border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top:0;
         }
-        .content-block h2 { 
+        .content-block h2 {
             margin-top:0;
         }
         .conversion-row td { background-color: #e6f7ff !important; font-style: italic;}
@@ -263,7 +263,7 @@
          <div class="no-data-message">Нет данных для отображения. Возможно, не найдено инструментов с продажами или дивидендов в целевом году ({{ target_report_year_for_title|default:"указанный" }}).</div>
     {% endif %}
 
-    {# START: Block for Additional Commissions (Corrected for Standard Django Tags - V3) #}
+    {# START: Block for Additional Commissions #}
     {% if processing_has_run_for_current_display %}
         <div class="content-block">
             <h2>Детализация прочих брокерских комиссий за {{ target_report_year_for_title|default:"указанный" }} год</h2>
@@ -271,51 +271,127 @@
             {# --- ОТЛАДОЧНЫЙ ВЫВОД (ОСТАВЬТЕ ЭТО!) --- #}
             <div style="background-color: #f0f0f0; border: 1px dashed #ccc; padding: 10px; margin: 10px 0; font-size: 0.8em;">
                 <p><strong>DEBUGGING OUTPUT (из upload.html):</strong></p>
-                {# Используем safe, чтобы избежать некорректной обработки Django'ом #}
-                <p>dividend_commissions: {{ dividend_commissions|default_if_none:"{}"|safe }}</p>
-                <p>other_commissions: {{ other_commissions|default_if_none:"{}"|safe }}</p>
+                <p>dividend_commissions (структура): <code>{ "Категория (Тикер)": {'amount_by_currency': {'USD': Сумма, ...}, 'amount_rub': СуммаRUB, 'details': [...]}, ... }</code></p>
+                <p style="word-break: break-all;">dividend_commissions (данные): {{ dividend_commissions|default_if_none:"{}"|safe }}</p>
+                <hr>
+                <p>other_commissions (структура): <code>{ "Категория": {'currencies': {'USD': Сумма, ...}, 'total_rub': СуммаRUB, 'raw_events': [...]}, ... }</code></p>
+                <p style="word-break: break-all;">other_commissions (данные): {{ other_commissions|default_if_none:"{}"|safe }}</p>
+                <hr>
+                <p>total_other_commissions_rub: {{ total_other_commissions_rub|default_if_none:"0.00"|safe }}</p>
             </div>
             {# --- КОНЕЦ ОТЛАДОЧНОГО ВЫВОДА --- #}
 
-            {# ----- Комиссии, связанные с дивидендами ----- #}
+            {# ----- Комиссии, связанные с дивидендами (ИСПРАВЛЕНО)----- #}
             <h4>Комиссии, связанные с дивидендами:</h4>
             {% if dividend_commissions %}
-                <ul>
-                    {# Убедитесь, что dividend_commissions - это словарь, используя items #}
-                    {% for currency, total_amount in dividend_commissions.items %}
-                        {% if total_amount > 0 %}
-                            <li><strong>{{ currency }}:</strong> {{ total_amount|floatformat:2 }}</li>
-                        {% endif %}
-                    {% empty %}
-                        <li>Комиссии по дивидендам не найдены или равны нулю в данном году.</li>
-                    {% endfor %}
-                </ul>
+                <table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">
+                    <thead>
+                        <tr>
+                            <th>Категория (Тикер)</th>
+                            <th>Суммы в валютах</th>
+                            <th class="numeric">Общая сумма (RUB)</th>
+                            <th>Детализация</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for category_name, category_data in dividend_commissions.items %}
+                            <tr>
+                                <td>{{ category_name }}</td>
+                                <td>
+                                    {% for currency_code, total_amount in category_data.amount_by_currency.items %}
+                                        {{ total_amount|floatformat:2 }} {{ currency_code }}<br>
+                                    {% empty %}
+                                        N/A
+                                    {% endfor %}
+                                </td>
+                                <td class="numeric">{{ category_data.amount_rub|floatformat:2 }}</td>
+                                <td>
+                                    {% if category_data.details %}
+                                        <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
+                                            {% for detail in category_data.details %}
+                                                <li>
+                                                    {{ detail.date }}: {{ detail.amount|floatformat:2 }} {{ detail.currency }}
+                                                    (<strong>{{ detail.amount_rub|floatformat:2 }} RUB</strong>)
+                                                    {% if detail.comment %} - <i>{{ detail.comment|truncatechars:70 }}</i>{% endif %}
+                                                    <br><small>(Файл: {{ detail.source_file }}; ID транз.: {{ detail.transaction_id }})</small>
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        Нет деталей
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="4" style="text-align: center;">Комиссии, связанные с дивидендами, не найдены или равны нулю.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             {% else %}
-                 <p>Комиссии по дивигендам не найдены (переменная пуста или None).</p> 
+                 <p>Комиссии, связанные с дивидендами, не найдены (данные отсутствуют).</p>
             {% endif %}
 
             {# ----- Прочие комиссии ----- #}
             <h4 style="margin-top: 20px;">Прочие комиссии (не учтенные в сделках продажи и не связанные с дивидендами):</h4>
+            {% if total_other_commissions_rub > 0 %}
+                 <p><small>Общая сумма прочих комиссий: {{ total_other_commissions_rub|floatformat:2 }} RUB</p></small>
+            {% endif %}
+
             {% if other_commissions %}
-                {% for category, currencies in other_commissions.items %}
-                     <h5>{{ category }}:</h5>
-                     <ul>
-                        {% for currency_code, amount_val in currencies.items %}
-                            {% if amount_val > 0 %}
-                                <li><strong>{{ currency_code }}:</strong> {{ amount_val|floatformat:2 }}</li>
-                            {% endif %}
-                        {% empty %} {# Сработает, если currencies.items пуст для этой категории #}
-                            <li>Нет данных по этой категории.</li>
-                        {% endfor %}
-                     </ul>
-                {% empty %} {# Сработает, если other_commissions.items пуст #}
-                    <p>Прочие нераспределенные комиссии не найдены.</p>
-                {% endfor %}
+                <table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">
+                    <thead>
+                        <tr>
+                            <th>Категория</th>
+                            <th>Суммы в валютах</th>
+                            <th class="numeric">Общая сумма (RUB)</th>
+                            {# Если нужна детализация для other_commissions, можно добавить столбец #}
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for category, data in other_commissions.items %}
+                        <tr>
+                            <td>{{ category }}</td>
+                            <td>
+                                {% for currency_code, amount_val in data.currencies.items %}
+                                    {% if amount_val > 0 %}
+                                        {{ amount_val|floatformat:2 }} {{ currency_code }}<br>
+                                        {# Если хотите показывать эквивалент в RUB для каждой валюты здесь,
+                                           потребуется изменить структуру data.currencies или data.raw_events
+                                           чтобы легко сопоставить суммы в валюте с их RUB эквивалентами из raw_events.
+                                           Либо суммировать event.amount_rub из raw_events для данной currency_code.
+                                           Текущий вывод RUB для каждой валюты в data.raw_events был бы слишком громоздким тут.
+                                           Проще показывать общую сумму по категории в RUB, что уже делается.
+                                        #}
+                                    {% endif %}
+                                {% empty %}
+                                    Нет данных
+                                {% endfor %}
+                            </td>
+                            <td class="numeric" style="font-weight: bold;">{{ data.total_rub|floatformat:2 }}</td>
+                            {# Пример детализации, если есть data.raw_events и нужно:
+                            <td>
+                                <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
+                                {% for event in data.raw_events %}
+                                    <li>{{ event.date|date:"Y-m-d" }}: {{event.amount|floatformat:2}} {{event.currency}} ({{event.amount_rub|floatformat:2}} RUB) - {{event.source}}</li>
+                                {% endfor %}
+                                </ul>
+                            </td>
+                            #}
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="3" style="text-align: center;">Прочие нераспределенные комиссии не найдены.</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
             {% else %}
-                <p>Прочие нераспределенные комиссии не найдены (переменная пуста или None).</p>
+                <p>Прочие нераспределенные комиссии не найдены (данные отсутствуют).</p>
             {% endif %}
         </div>
-    {% elif processing_has_run_for_current_display and not instrument_event_history and not dividend_history %} 
+    {% elif processing_has_run_for_current_display and not instrument_event_history and not dividend_history %}
         <div class="content-block">
              <h2>Детализация прочих брокерских комиссий за {{ target_report_year_for_title|default:"указанный" }} год</h2>
              <p class="no-data-message">Данные по комиссиям не были обработаны или переданы в шаблон.</p>
