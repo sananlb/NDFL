@@ -4,7 +4,7 @@
     <title>Загрузка XML отчетов</title>
     <style>
         body { font-family: sans-serif; margin: 20px; line-height: 1.6; background-color: #f4f7f6; }
-        h1, h2, h3, h4 { color: #333; }
+        h1, h2, h3, h4, h5 { color: #333; }
         .container { display: flex; flex-wrap: wrap; gap: 20px; }
         .main-content { flex: 2; min-width: 200px;}
         .sidebar { flex: 3; min-width: 300px; }
@@ -15,34 +15,34 @@
         .messages li.error { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
         .messages li.warning { background-color: #fff3cd; color: #856404; border-color: #ffeeba; }
         .messages li.info { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
-        
+
         .form-section {
-            border: 1px solid #ddd; 
-            padding: 20px; 
-            margin-bottom: 20px; 
-            border-radius: 5px; 
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
             background-color: #ffffff;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         }
         .form-section h3 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; }
 
         label { display: block; margin-bottom: 5px; font-weight: bold; color: #555}
-        input[type="number"], input[type="file"] { 
-            padding: 10px; 
-            border: 1px solid #ccc; 
-            border-radius: 4px; 
-            width: calc(100% - 22px); 
+        input[type="number"], input[type="file"] {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: calc(100% - 22px);
             box-sizing: border-box;
             margin-bottom: 10px;
         }
-        button[type="submit"] { 
-            padding: 12px 25px; 
-            background-color: #007bff; 
-            color: white; 
-            border: none; 
-            border-radius: 4px; 
-            cursor: pointer; 
-            font-size: 1em; 
+        button[type="submit"] {
+            padding: 12px 25px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
             transition: background-color 0.3s ease;
         }
         button[type="submit"]:hover { background-color: #0056b3; }
@@ -51,21 +51,25 @@
         th, td { border: 1px solid #ddd; padding: 10px; text-align: left; word-wrap: break-word; }
         th { background-color: #e9ecef; font-weight: bold; white-space: nowrap; color: #495057; }
         td.numeric { text-align: right; }
-        
-        .content-block { 
-            margin-bottom: 30px; 
-            border: 1px solid #ccc; 
-            padding: 20px; 
-            border-radius: 5px; 
-            background-color: #ffffff; 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
-            overflow-x: auto; 
+
+        .content-block {
+            margin-bottom: 30px;
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 5px;
+            background-color: #ffffff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            overflow-x: auto;
         }
-        .content-block h3, .content-block h2 { 
-             border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top:0; 
+        .content-block h3 {
+             border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top:0;
+        }
+        .content-block h2 {
+            margin-top:0;
         }
         .conversion-row td { background-color: #e6f7ff !important; font-style: italic;}
         .aggregated-trade-row td {}
+        .non-relevant-row td { color: #999; }
 
 
         #selected_files ul { list-style-type: disc; margin-left: 20px; padding-left: 0; margin-top: 5px; }
@@ -74,29 +78,48 @@
         .user-info { text-align: right; margin-bottom: 20px; padding-bottom:10px; border-bottom: 1px solid #eee; }
         .user-info a { color: #007bff; text-decoration: none; }
         .user-info a:hover { text-decoration: underline; }
-        
-        .previously-uploaded-section { 
-            padding:20px; 
-            border: 1px solid #e0e0e0; 
-            background-color:#f0f0f0; 
+
+        .previously-uploaded-section {
+            padding:20px;
+            border: 1px solid #e0e0e0;
+            background-color:#f0f0f0;
             border-radius:5px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         }
         .previously-uploaded-section h4 { margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px;}
         .previously-uploaded-section ul { list-style-type: none; padding-left: 0; }
-        .previously-uploaded-section li { 
-            background-color: #fff; 
-            border: 1px solid #eee; 
-            padding: 10px 15px; 
-            margin-bottom: 8px; 
-            border-radius: 4px; 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
+        .previously-uploaded-section li {
+            background-color: #fff;
+            border: 1px solid #eee;
+            padding: 10px 15px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             font-size: 0.95em;
         }
+        .file-info {
+            display: flex;
+            align-items: center;
+            flex-grow: 1;
+        }
+        .delete-btn {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: background-color 0.3s ease;
+            margin-left: 10px;
+        }
+        .delete-btn:hover {
+            background-color: #c82333;
+        }
         .previously-uploaded-section li .date { font-size: 0.85em; color: #777; margin-left: 10px; white-space: nowrap;}
-        
+
         .no-data-message { margin-top: 20px; padding: 15px; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 4px; text-align: center; color: #495057;}
 
         @media (max-width: 768px) {
@@ -155,8 +178,14 @@
                     <ul>
                         {% for file_entry in previously_uploaded_files %}
                         <li>
-                            <span>{{ file_entry.original_filename }} (Отчет за {{ file_entry.year }} год)</span>
-                            <span class="date">Загружен: {{ file_entry.uploaded_at|date:"d.m.Y H:i" }}</span>
+                            <div class="file-info">
+                                <span>{{ file_entry.original_filename }} (Отчет за {{ file_entry.year }} год)</span>
+                                <span class="date">Загружен: {{ file_entry.uploaded_at|date:"d.m.Y H:i" }}</span>
+                            </div>
+                            <form method="post" action="{% url 'delete_xml_file' file_entry.id %}" style="margin: 0;" onsubmit="return confirm('Вы уверены, что хотите удалить файл {{ file_entry.original_filename }}?');">
+                                {% csrf_token %}
+                                <button type="submit" class="delete-btn">Удалить</button>
+                            </form>
                         </li>
                         {% endfor %}
                     </ul>
@@ -165,10 +194,13 @@
             {% endif %}
         </div>
     </div>
-    
+
     {% if instrument_event_history %}
         <div class="content-block">
             <h2>История операций по инструментам с продажами в {{ target_report_year_for_title|default:"указанный" }} году (код дохода 1530):</h2>
+            <h3>Общий финансовый результат по сделкам продажи: {{ total_sales_profit_rub|floatformat:2 }} RUB</h3>
+            <p style="font-size: 0.9em; color: #666; margin-top: 5px;"><em>Примечание: серым цветом выделены операции, не связанные с продажами в {{ target_report_year_for_title }} году</em></p>
+            <br>
             {% for grouping_isin, event_list in instrument_event_history.items %}
                 <div class="instrument-specific-block" style="margin-bottom: 20px;">
                     {% with first_event_wrapper=event_list.0 %}{% with first_event=first_event_wrapper.event_details %}
@@ -183,32 +215,31 @@
                         <tbody>
                             {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                                 {% if event_wrapper.display_type == 'trade' %}
-                                    <tr {% if event.is_aggregated %}class="aggregated-trade-row"{% endif %}>
+                                    <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                         <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}</td>
                                         <td> {{ event.trade_id|default:"-" }}</td>
                                         <td>{% if event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
                                         <td>{{ event.instr_nm|default:event.isin }}</td>
-                                        <td class="numeric">{{ event.p|default:"-" }} <small>{{ event.curr_c|default:"" }}</small></td>
+                                        <td class="numeric">{{ event.p|default:"-" }}</small></td>
                                         <td class="numeric">{{ event.q|default:"-" }}</td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric"><strong>{{ event.fifo_cost_rub_str|default:"-" }}</strong></td>
-                                        {% comment %} <td>{{ event.file_source|default:"-" }}</td> {% endcomment %}
                                     </tr>
                                 {% elif event_wrapper.display_type == 'conversion_info' %}
-                                    <tr class="conversion-row">
+                                    <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                         <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td><td>Конвертация ID: {{ event.corp_action_id|default:"N/A" }}</td>
                                         <td colspan="2"><strong>Конвертация акций</strong><br>Списано: {{ event.old_quantity_removed|default:'?' }} шт. {{ event.old_ticker|default:event.old_isin }} ({{event.old_isin}})<br>Получено: {{ event.new_quantity_received|default:'?' }} шт. {{ event.new_ticker|default:event.new_isin }} ({{event.new_isin}})</td>
-                                        <td colspan="3"><i>{{ event.ratio_comment|truncatechars:120 }}</i></td><td>-</td><td>-</td><td>{{ event.file_source|default:"-" }}</td>
+                                        <td colspan="3"><i>{{ event.ratio_comment|truncatechars:120 }}</i></td><td>-</td><td>-</td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'initial_holding' %}
-                                    <tr>
+                                    <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
                                         <td>{{ event_wrapper.datetime_obj|date:"Y-m-d H:i:s" }}</td><td>Начальный остаток</td><td>Зачисление</td>
                                         <td>{{ event.instr_nm|default:event.isin }} ({{event.isin}})</td>
                                         <td class="numeric">{{ event.p|default:"-" }} <small>{{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.q|default:"-" }}</td>
                                         <td class="numeric">Общ. стоим. {{ event.total_cost_rub_str|default:"-" }} RUB</td>
-                                        <td>-</td><td>Себест.: {{ event.total_cost_rub_str|default:"-" }}</td><td>{{ event.file_source|default:"-" }}</td>
+                                        <td>-</td><td>-</td>
                                     </tr>
                                 {% endif %}
                             {% endwith %}{% endfor %}
@@ -216,7 +247,7 @@
                     </table>
                 </div>
             {% empty %}
-                {% if request.session.run_processing_for_year is not None and not parsing_error_occurred and not dividend_history %}
+                {% if processing_has_run_for_current_display and not parsing_error_occurred and not dividend_history %}
                      <div class="no-data-message">История операций по инструментам с продажами в целевом году ({{ target_report_year_for_title|default:"указанный" }}) не найдена или отсутствует.</div>
                 {% endif %}
             {% endfor %}
@@ -225,10 +256,10 @@
 
     {% if dividend_history %}
         <div class="content-block">
-            <h2>История дивидендов за {{ target_report_year_for_title|default:"указанный" }} год (код дохода 1010):</h2>
+            <h2>История дивидендов за {{ target_report_year_for_title|default:"указанный" }} год (код дохода 1010):
                 {% if total_dividends_rub > 0 %}
-                    (Общая сумма до налогов: {{ total_dividends_rub|floatformat:2 }} RUB)
-                {% endif %}
+                 <p><small>Общая сумма дивидендов до налогов: {{ total_dividends_rub|floatformat:2 }} RUB</p></small> {% endif %}
+                 <br>
             </h2>
             <table>
                 <thead>
@@ -239,29 +270,157 @@
                         <th class="numeric">Удержанный налог</th>
                         <th>Валюта</th>
                         <th class="numeric">Курс ЦБ на дату</th>
-                        {% comment %} <th>Источник файла</th> {% endcomment %}
                     </tr>
                 </thead>
                 <tbody>
                     {% for div_event in dividend_history %}
                         <tr>
                             <td>{{ div_event.date|date:"Y-m-d" }}</td>
-                            <td>{{ div_event.ticker|default:"N/A" }}</td>
+                            <td>{{ div_event.ticker|default:"N/A" }} ({{div_event.instrument_name|default:'' }})</td>
                             <td class="numeric">{{ div_event.amount|floatformat:2 }}</td>
                             <td class="numeric">{{ div_event.tax_amount|floatformat:2 }}</td>
                             <td>{{ div_event.currency|default:"N/A" }}</td>
                             <td class="numeric">{{ div_event.cbr_rate_str|default:"-" }}</td>
-                            {% comment %} <td>{{ div_event.file_source|default:"-" }}</td> {% endcomment %}
                         </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
-    {% elif request.session.run_processing_for_year is not None and not parsing_error_occurred and not instrument_event_history %}
+    {% elif processing_has_run_for_current_display and not parsing_error_occurred and not instrument_event_history %}
          <div class="no-data-message">Нет данных для отображения. Возможно, не найдено инструментов с продажами или дивидендов в целевом году ({{ target_report_year_for_title|default:"указанный" }}).</div>
     {% endif %}
-    
-    {% if parsing_error_occurred and request.session.run_processing_for_year is not None %}
+
+    {# START: Block for Additional Commissions #}
+    {% if processing_has_run_for_current_display %}
+        <div class="content-block">
+            <h2>Детализация прочих брокерских комиссий за {{ target_report_year_for_title|default:"указанный" }} год</h2>
+
+            {% comment %} {# --- ОТЛАДОЧНЫЙ ВЫВОД (ОСТАВЬТЕ ЭТО!) --- #}
+            <div style="background-color: #f0f0f0; border: 1px dashed #ccc; padding: 10px; margin: 10px 0; font-size: 0.8em;">
+                <p><strong>DEBUGGING OUTPUT (из upload.html):</strong></p>
+                <p>dividend_commissions (структура): <code>{ "Категория (Тикер)": {'amount_by_currency': {'USD': Сумма, ...}, 'amount_rub': СуммаRUB, 'details': [...]}, ... }</code></p>
+                <p style="word-break: break-all;">dividend_commissions (данные): {{ dividend_commissions|default_if_none:"{}"|safe }}</p>
+                <hr>
+                <p>other_commissions (структура): <code>{ "Категория": {'currencies': {'USD': Сумма, ...}, 'total_rub': СуммаRUB, 'raw_events': [...]}, ... }</code></p>
+                <p style="word-break: break-all;">other_commissions (данные): {{ other_commissions|default_if_none:"{}"|safe }}</p>
+                <hr>
+                <p>total_other_commissions_rub: {{ total_other_commissions_rub|default_if_none:"0.00"|safe }}</p>
+            </div>
+            {# --- КОНЕЦ ОТЛАДОЧНОГО ВЫВОДА --- #} {% endcomment %}
+
+            {# ----- Комиссии, связанные с дивидендами (ИСПРАВЛЕНО)----- #}
+            <h4>Комиссии, связанные с дивидендами:</h4>
+            {% if dividend_commissions %}
+                <table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">
+                    <thead>
+                        <tr>
+                            <th>Категория (Тикер)</th>
+                            <th>Суммы в валютах</th>
+                            <th class="numeric">Общая сумма (RUB)</th>
+                            <th>Детализация</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for category_name, category_data in dividend_commissions.items %}
+                            <tr>
+                                <td>{{ category_name }}</td>
+                                <td>
+                                    {% for currency_code, total_amount in category_data.amount_by_currency.items %}
+                                        {{ total_amount|floatformat:2 }} {{ currency_code }}<br>
+                                    {% empty %}
+                                        N/A
+                                    {% endfor %}
+                                </td>
+                                <td class="numeric">{{ category_data.amount_rub|floatformat:2 }}</td>
+                                <td>
+                                    {% if category_data.details %}
+                                        <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
+                                            {% for detail in category_data.details %}
+                                                <li>
+                                                    {{ detail.date }}: {{ detail.amount|floatformat:2 }} {{ detail.currency }}
+                                                    (<strong>{{ detail.amount_rub|floatformat:2 }} RUB</strong>)
+                                                    {% if detail.comment %} - <i>{{ detail.comment|truncatechars:70 }}</i>{% endif %}
+                                                    {% comment %} <br><small>(Файл: {{ detail.source_file }}; ID транз.: {{ detail.transaction_id }})</small> {% endcomment %}
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        Нет деталей
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="4" style="text-align: center;">Комиссии, связанные с дивидендами, не найдены или равны нулю.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                 <p>Комиссии, связанные с дивидендами, не найдены (данные отсутствуют).</p>
+            {% endif %}
+            <br>
+            {# ----- Прочие комиссии ----- #}
+            <h4 style="margin-top: 20px;">Прочие комиссии:</h4>
+            {% if total_other_commissions_rub > 0 %}
+                 <p><h4>Общая сумма прочих комиссий: {{ total_other_commissions_rub|floatformat:2 }} RUB</p></h4>
+            {% endif %}
+
+            {% if other_commissions %}
+                <table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">
+                    <thead>
+                        <tr>
+                            <th>Категория</th>
+                            <th>Суммы в валютах</th>
+                            <th class="numeric">Общая сумма (RUB)</th>
+                            <th>Детализация</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for category, data in other_commissions.items %}
+                        <tr>
+                            <td>{{ category }}</td>
+                            <td>
+                                {% for currency_code, amount_val in data.currencies.items %}
+                                    {% if amount_val > 0 %}
+                                        {{ amount_val|floatformat:2 }} {{ currency_code }}<br>
+                
+                                    {% endif %}
+                                {% empty %}
+                                    Нет данных
+                                {% endfor %}
+                            </td>
+                            <td class="numeric" style="font-weight: bold;">{{ data.total_rub|floatformat:2 }}</td>
+                           
+                            <td>
+                                <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
+                                {% for event in data.raw_events %}
+                                    <li>{{ event.date|date:"Y-m-d" }}: {{event.amount|floatformat:2}} {{event.currency}} ({{event.amount_rub|floatformat:2}} RUB)</li>
+                                {% endfor %}
+                                </ul>
+                            </td>
+                            
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="3" style="text-align: center;">Прочие нераспределенные комиссии не найдены.</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>Прочие нераспределенные комиссии не найдены (данные отсутствуют).</p>
+            {% endif %}
+        </div>
+    {% elif processing_has_run_for_current_display and not instrument_event_history and not dividend_history %}
+        <div class="content-block">
+             <h2>Детализация прочих брокерских комиссий за {{ target_report_year_for_title|default:"указанный" }} год</h2>
+             <p class="no-data-message">Данные по комиссиям не были обработаны или переданы в шаблон.</p>
+        </div>
+    {% endif %}
+    {# END: Block for Additional Commissions #}
+
+    {% if parsing_error_occurred and processing_has_run_for_current_display %}
         <p style="margin-top:20px; color: #721c24; font-weight:bold; background-color: #f8d7da; border:1px solid #f5c6cb; padding:10px; border-radius:4px;"><b>Внимание:</b> Во время обработки файлов произошли ошибки. Отображаемые данные могут быть неполными. Пожалуйста, проверьте сообщения выше.</p>
     {% endif %}
 
@@ -269,7 +428,7 @@
         document.getElementById('xml_file_input').addEventListener('change', function(event) {
             const fileList = event.target.files;
             const selectedFilesDiv = document.getElementById('selected_files');
-            selectedFilesDiv.innerHTML = ''; 
+            selectedFilesDiv.innerHTML = '';
             if (fileList.length > 0) {
                 const fileListTitle = document.createElement('h4');
                 fileListTitle.style.marginTop = '0px'; fileListTitle.style.marginBottom = '5px';
@@ -282,9 +441,9 @@
                 selectedFilesDiv.appendChild(fileListElement);
             }
         });
-        const yearInputHTML = document.getElementById('year_input_process'); 
-        if (yearInputHTML) { 
-            const defaultYearValue = "{{ target_report_year_for_title|default_if_none:'' }}";
+        const yearInputHTML = document.getElementById('year_input_process');
+        if (yearInputHTML) {
+            const defaultYearValue = "{{ request.session.last_target_year|default_if_none:'' }}";
             if (yearInputHTML.value === '' && defaultYearValue !== '') { yearInputHTML.value = defaultYearValue; }
         }
     </script>
