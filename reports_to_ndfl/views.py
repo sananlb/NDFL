@@ -100,9 +100,7 @@ def upload_xml_file(request):
                             continue
                     if xml_string:
                         file_year_from_xml = parse_year_from_date_end(xml_string)
-                    else:
-
-
+                    
                     if file_year_from_xml is None:
                         messages.error(request, f"Файл {original_name}: не удалось извлечь год из XML. Файл пропущен.")
                         parsing_error_in_upload_phase = True;
