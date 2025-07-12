@@ -7,7 +7,6 @@ from collections import defaultdict, deque
 import re
 import json
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, Context
-import logging
 
 
 # Предполагается, что models и services доступны или будут импортированы
@@ -18,14 +17,6 @@ from currency_CBRF.models import Currency, ExchangeRate
 from currency_CBRF.services import fetch_daily_rates
 
 
-logger = logging.getLogger(__name__)
-if not logger.hasHandlers():
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
-
 decimal_context = Context(prec=36, rounding=ROUND_HALF_UP)
 
 PARSING_ERROR_MARKER = "CA_PARSING_ERROR"
@@ -34,7 +25,6 @@ _processing_had_error = [False] # Общий флаг ошибки для все
 
 def _get_exchange_rate_for_date(request, currency_obj, target_date_obj, rate_purpose_message=""):
     if not isinstance(target_date_obj, date):
-        logger.error(f"FFG_NDFL: Передана не дата в _get_exchange_rate_for_date: {target_date_obj} ({type(target_date_obj)}) для {currency_obj.char_code} {rate_purpose_message}")
         return None, False, None
 
     exact_rate_obj = ExchangeRate.objects.filter(currency=currency_obj, date=target_date_obj).first()
@@ -59,8 +49,8 @@ def _get_exchange_rate_for_date(request, currency_obj, target_date_obj, rate_pur
                     )
                     if created: messages.info(request, f"Создан 'алиас' курса для {currency_obj.char_code} на {target_date_obj.strftime('%d.%m.%Y')} исп. данные от {actual_rates_date_from_cbr.strftime('%d.%m.%Y')}.")
                     return aliased_rate, True, aliased_rate.unit_rate
-                except KeyError as e_key: logger.error(f"FFG_NDFL: KeyError при создании 'алиаса' ({e_key}) для {currency_obj.char_code} на {target_date_obj}. Данные: {rate_data_for_alias_creation}", exc_info=True)
-                except Exception as e_alias: logger.error(f"FFG_NDFL: Ошибка при создании 'алиаса' курса для {currency_obj.char_code} на {target_date_obj}: {e_alias}", exc_info=True)
+                except KeyError as e_key: pass
+                except Exception as e_alias: pass
 
     final_fallback_rate = ExchangeRate.objects.filter(currency=currency_obj, date__lte=target_date_obj).order_by('-date').first()
     if final_fallback_rate:
@@ -70,7 +60,7 @@ def _get_exchange_rate_for_date(request, currency_obj, target_date_obj, rate_pur
     message_to_user = f"Курс для {currency_obj.char_code} на {target_date_obj.strftime('%d.%m.%Y')} {rate_purpose_message} не найден."
     if not actual_rates_date_from_cbr : message_to_user = f"Критическая ошибка при загрузке с ЦБ. {message_to_user}"; messages.error(request, message_to_user)
     else: messages.warning(request, message_to_user)
-    logger.warning(message_to_user); return None, False, None
+    return None, False, None
 
 def _parse_full_conversion_comment(comment_str):
     if not comment_str: return None
@@ -109,7 +99,7 @@ def _extract_ca_nodes_from_file(file_instance):
                             ca_data_item['file_source'] = f"{file_instance.original_filename} (за {file_instance.year})"
                             ca_nodes_in_file.append(ca_data_item)
     except Exception as e:
-        logger.error(f"FFG_NDFL: Ошибка при извлечении КД из файла {file_instance.original_filename}: {e}")
+        pass
     return ca_nodes_in_file
 
 def _parse_and_validate_ca_node_on_demand(request, raw_ca_node_data, ca_nodes_from_same_file, _processing_had_error):
@@ -123,14 +113,12 @@ def _parse_and_validate_ca_node_on_demand(request, raw_ca_node_data, ca_nodes_fr
         try:
             ca_datetime_obj = datetime.strptime(ca_date_str, '%Y-%m-%d').date()
         except ValueError:
-            logger.warning(f"FFG_NDFL: ON-DEMAND PARSE: Некорректная дата '{ca_date_str}' для КД {raw_ca_node_data.get('corporate_action_id')}")
             _processing_had_error[0] = True; return PARSING_ERROR_MARKER
     if not ca_datetime_obj: _processing_had_error[0] = True; return PARSING_ERROR_MARKER
 
     amount_in_ca_node_str = raw_ca_node_data.get('amount', '0')
     try: quantity_in_node = Decimal(amount_in_ca_node_str)
     except InvalidOperation:
-        logger.warning(f"FFG_NDFL: ON-DEMAND PARSE: Некорректное количество '{amount_in_ca_node_str}' для КД {raw_ca_node_data.get('corporate_action_id')}")
         _processing_had_error[0] = True; return PARSING_ERROR_MARKER
 
     if quantity_in_node <= 0: return NOT_A_RELEVANT_CONVERSION_MARKER
@@ -159,14 +147,13 @@ def _parse_and_validate_ca_node_on_demand(request, raw_ca_node_data, ca_nodes_fr
                     actual_old_quantity_removed = abs(removed_qty_val)
                     found_removal_event = True; break
             except InvalidOperation:
-                logger.warning(f"FFG_NDFL: ON-DEMAND PARSE: Не удалось преобразовать кол-во '{removal_ca_data.get('amount')}' для списания КД {corp_action_id_from_node}")
+                pass
 
     if not found_removal_event:
         error_message = (f"Критическая ошибка (ON-DEMAND PARSE) для КД ID: {corp_action_id_from_node} в файле {raw_ca_node_data.get('file_source')}: "
                          f"Зачислено {quantity_in_node} шт. {isin_in_ca_node} (старый ISIN: {old_isin_from_comment}). "
                          f"Не найдено парное СПИСАНИЕ старых бумаг {old_isin_from_comment} в том же файле. Конвертация не будет применена.")
         messages.error(request, error_message)
-        logger.error(error_message)
         _processing_had_error[0] = True
         return PARSING_ERROR_MARKER
 
@@ -217,13 +204,12 @@ def _apply_conversion_on_demand(request, target_isin, operation_date, buy_lots_d
                 new_quantity_from_ca = ca_event_fifo_data['new_quantity']
                 conversion_date = ca_event_fifo_data['datetime_obj']
 
-                logger.info(f"FFG_NDFL: FIFO (ON-DEMAND): Применяется конвертация (ID: {ca_id}): {old_isin} -> {new_quantity_from_ca} {new_isin} на {conversion_date} из файла {raw_ca_item_data.get('file_source')}.")
                 total_cost_basis_of_old_shares_rub = Decimal(0)
                 total_qty_of_old_shares_removed = Decimal(0)
                 old_shares_queue = buy_lots_deques[old_isin]
 
                 if not old_shares_queue:
-                    logger.warning(f"FFG_NDFL: FIFO (ON-DEMAND): Нет акций {old_isin} для списания при конвертации в {new_isin} (ID: {ca_id}).")
+                    pass
                 
                 temp_removed_lots = [] # Временно сохраняем списываемые лоты
                 while old_shares_queue:
@@ -238,7 +224,7 @@ def _apply_conversion_on_demand(request, target_isin, operation_date, buy_lots_d
                 # Мы списываем из buy_lots_deques[old_isin].
 
                 if total_qty_of_old_shares_removed > 0:
-                     logger.info(f"FFG_NDFL: FIFO (ON-DEMAND): Для конвертации (ID: {ca_id}) списано ВСЕГО {total_qty_of_old_shares_removed} шт. {old_isin} общей стоимостью {total_cost_basis_of_old_shares_rub.quantize(Decimal('0.01'),rounding=ROUND_HALF_UP):.2f} RUB.")
+                     pass
 
                 if new_quantity_from_ca > 0:
                     cost_per_new_share_rub = Decimal(0)
@@ -260,8 +246,6 @@ def _apply_conversion_on_demand(request, target_isin, operation_date, buy_lots_d
                         if conversion_date < target_queue_for_new_shares[i_idx]['date']:
                             target_queue_for_new_shares.insert(i_idx, new_lot); inserted = True; break
                     if not inserted: target_queue_for_new_shares.append(new_lot)
-                    
-                    logger.info(f"FFG_NDFL: FIFO (ON-DEMAND): В результате конвертации (ID: {ca_id}) зачислено {new_quantity_from_ca} шт. {new_isin} по ~{cost_per_new_share_rub:.6f} RUB/шт.")
                     
                     # Добавляем информацию о конвертации для отображения в истории инструмента
                     if parsed_ca_info.get('display_data'): # Убедимся, что есть что добавлять
@@ -324,7 +308,6 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                         buy_total_commission_rub = (buy_commission_orig_curr * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                     else:
                         if trade_dict_ref: trade_dict_ref['fifo_cost_rub_str'] = "Ошибка курса покупки (FIFO)"
-                        logger.error(f"FFG_NDFL: FIFO: Ошибка курса для покупки {op.get('trade_id','N/A')} (ISIN: {op_isin}). Пропуск.")
                         _processing_had_error[0] = True; continue
                 else: # RUB trade
                     buy_total_cost_shares_rub = (buy_price_per_share_orig_curr * buy_quantity_original).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -378,10 +361,8 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                     if pending_short_entry['q_uncovered'] <= Decimal('0.000001'):
                         original_short_trade_ref['short_sale_status'] = 'covered_by_future'
                         pending_short_sales[op_isin].popleft() 
-                        logger.info(f"FFG_NDFL: FIFO: Короткая продажа {original_short_trade_ref.get('trade_id')} (ISIN: {op_isin}) полностью покрыта покупкой {op.get('trade_id', 'BUY')}.")
                     else:
                         original_short_trade_ref['short_sale_status'] = 'partially_covered_short'
-                        logger.info(f"FFG_NDFL: FIFO: Короткая продажа {original_short_trade_ref.get('trade_id')} (ISIN: {op_isin}) частично ({qty_to_cover_short} шт.) покрыта покупкой {op.get('trade_id', 'BUY')}. Осталось: {pending_short_entry['q_uncovered']}")
             
             if buy_quantity_remaining_for_lot > Decimal('0.000001'):
                 original_id = op.get('trade_id', 'INITIAL' if op_type == 'initial_holding' else 'BUY_NO_ID')
@@ -391,11 +372,10 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                     'date': op_date,
                     'original_trade_id': original_id
                 })
-            if op_type == 'initial_holding': logger.info(f"FFG_NDFL: FIFO: Добавлен нач. остаток {op_isin}: {op['quantity']} @ {cost_per_share_of_this_buy_rub_incl_comm:.6f} RUB/шт.")
 
 
         elif op.get('operation_type') == 'sell':
-            if not trade_dict_ref: logger.warning(f"FFG_NDFL: FIFO: Пропуск продажи без trade_dict_ref: {op}"); continue
+            if not trade_dict_ref: continue
             if op['quantity'] <= 0:
                 trade_dict_ref['fifo_cost_rub_str'] = "0.00 (нулевое кол-во)"; trade_dict_ref['fifo_cost_rub_decimal'] = Decimal(0); continue
 
@@ -475,7 +455,7 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                         break 
                 
                 if attempt_count >= max_conversion_attempts and sell_q_to_cover > Decimal('0.000001'):
-                    logger.warning(f"FFG_NDFL: FIFO: Достигнуто макс. число попыток ({max_conversion_attempts}) конвертаций для продажи {op.get('trade_id','N/A')} ({op_isin}). Непокрытое кол-во: {sell_q_to_cover}")
+                    pass
 
             # Этап 3: Если все еще не покрыто - это короткая продажа (или ее часть)
             if sell_q_to_cover > Decimal('0.000001'):
@@ -490,7 +470,6 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                 # fifo_cost_rub_decimal уже содержит (стоимость_покрытой_части_акций + комиссия_продажи)
                 
                 msg_type = messages.info if final_q_covered_by_past_or_conv == 0 else messages.warning
-                log_level = logging.INFO if final_q_covered_by_past_or_conv == 0 else logging.WARNING
                 
                 message_text = (f"Продажа {op.get('trade_id','N/A')} ({op_isin}) "
                                 f"{'не покрыта' if final_q_covered_by_past_or_conv == 0 else 'не полностью покрыта'} "
@@ -499,7 +478,6 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                                 f"Остаток {sell_q_to_cover} зарегистрирован как потенциальный шорт. "
                                 f"Текущие расходы (по ранее покрытой части + комиссия продажи): {trade_dict_ref['fifo_cost_rub_decimal']:.2f} RUB.")
                 msg_type(request, message_text)
-                logger.log(log_level, message_text)
                 
                 # Строка fifo_cost_rub_str будет установлена позже
                 if final_q_covered_by_past_or_conv > 0 : # Было частичное покрытие до шорта
@@ -535,8 +513,6 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                     else: # Полностью открытый шорт с самого начала (или после неуспешных конвертаций)
                         # Для полностью открытого шорта, расходы = только комиссия продажи
                         ref['fifo_cost_rub_decimal'] = short_entry['sell_commission_rub']
-                    
-                    logger.info(f"FFG_NDFL: FIFO: Продажа {ref.get('trade_id')} (ISIN: {isin_key}) помечена как 'open_short_sale' на {short_entry['q_uncovered']} шт.")
             # Если q_uncovered == 0, то он был полностью покрыт и уже удален из deque или его статус 'covered_by_future'
 
 
@@ -549,7 +525,6 @@ def _str_to_decimal_safe(val_str, field_name_for_log="", context_id_for_log="", 
             return val_str
         return Decimal(str(val_str)) 
     except InvalidOperation:
-        logger.error(f"FFG_NDFL: Ошибка преобразования '{field_name_for_log}' в Decimal: '{val_str}' для ID/контекста: {context_id_for_log}")
         if _processing_had_error is not None: 
             _processing_had_error[0] = True 
         return Decimal(0) 
@@ -559,18 +534,12 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
     other_commissions_details = defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []})
     total_other_commissions_rub = Decimal(0)
 
-    logger.info(f"FFG_NDFL: COMMISSION_DEBUG: _calculate_additional_commissions called for year {target_report_year}.")
-    logger.info(f"FFG_NDFL: COMMISSION_DEBUG: target_year_files contains {target_year_files.count()} file(s).")
-
 
     if not target_year_files.exists():
         messages.info(request, f"Нет файлов за {target_report_year} для расчета детализированных комиссий.")
-        logger.info(f"FFG_NDFL: COMMISSION_DEBUG: No files for target year {target_report_year}. Returning empty commissions.")
         return dividend_commissions, other_commissions_details, total_other_commissions_rub
 
-    logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Starting Pass to process commissions.")
     for file_instance in target_year_files:
-        logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Processing file for commissions: {file_instance.original_filename}")
         try:
             with file_instance.xml_file.open('rb') as xml_file_content_stream:
                 content_bytes = xml_file_content_stream.read()
@@ -581,13 +550,11 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
                     xml_string = content_bytes.decode('windows-1251', errors='replace')
 
                 if not xml_string:
-                    logger.warning(f"FFG_NDFL: COMMISSION_DEBUG: XML string is empty for file {file_instance.original_filename}")
                     continue
 
                 root = ET.fromstring(xml_string)
 
                 commissions_main_element = root.find('.//commissions')
-                logger.info(f"FFG_NDFL: COMMISSION_DEBUG: File {file_instance.original_filename} - commissions_main_element found: {commissions_main_element is not None}")
                 if commissions_main_element:
                     detailed_comm = commissions_main_element.find('detailed')
                     if detailed_comm:
@@ -601,7 +568,6 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
                             comm_type_str = comm_node.findtext('type', '').strip()
                             comm_datetime_str = comm_node.findtext('datetime', '')
                             comm_comment = comm_node.findtext('comment', '').strip()
-                            logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Comm Node: type='{comm_type_str}', sum='{sum_str}', currency='{currency}', datetime='{comm_datetime_str}', comment='{comm_comment[:60]}...'")
 
 
                             comm_date_obj = None
@@ -609,19 +575,16 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
                                 try:
                                     comm_date_obj = datetime.strptime(comm_datetime_str.split(' ')[0], '%Y-%m-%d').date()
                                 except ValueError:
-                                    logger.warning(f"FFG_NDFL: COMMISSION_DEBUG: Некорректная дата комиссии '{comm_datetime_str}' для типа '{comm_type_str}' в файле {file_instance.original_filename}")
                                     continue 
                             if not (comm_date_obj and comm_date_obj.year == target_report_year):
                                 continue 
 
                             if not currency: 
-                                logger.warning(f"FFG_NDFL: COMMISSION_DEBUG: Пропуск комиссии без валюты: Тип '{comm_type_str}', Сумма '{sum_str}' в файле {file_instance.original_filename}")
                                 continue
 
                             if sum_val == Decimal(0): 
                                 continue
                             if comm_type_str.startswith("За сделку: "):
-                                logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Excluding commission '{comm_type_str}' as it is a 'За сделку' type.")
                                 continue 
 
 
@@ -665,11 +628,9 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
                                 'source': f"Comm Type: {comm_type_str}, {file_instance.original_filename}"
                             })
                             total_other_commissions_rub += amount_rub_comm
-                            logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Adding to other_commissions (from <commissions>): Category='{category_key}', Currency='{currency}', Amount='{sum_val}', RUB='{amount_rub_comm}'. Total now for this cat/curr: {other_commissions_details[category_key]['currencies'][currency]}")
 
 
                 corporate_actions_element = root.find('.//corporate_actions')
-                logger.info(f"FFG_NDFL: COMMISSION_DEBUG: File {file_instance.original_filename} - corporate_actions_element found: {corporate_actions_element is not None}")
 
                 if corporate_actions_element:
                     detailed_corp_actions = corporate_actions_element.find('detailed')
@@ -690,7 +651,6 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
                                 try:        
                                     ca_date_obj = datetime.strptime(ca_date_str.split(' ')[0], '%Y-%m-%d').date()
                                 except ValueError:
-                                    logger.warning(f"FFG_NDFL: COMMISSION_DEBUG: Некорректная дата корпоративного действия '{ca_date_str}' для CA ID {ca_id_for_log}")
                                     continue
                             
                             if not (ca_date_obj and ca_date_obj.year == target_report_year):
@@ -700,11 +660,9 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
                                 
                                 if amount_val_ca < 0: 
                                     if ca_type_id == 'agent_fee' and "дивиденд" in ca_comment.lower():
-                                        logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Excluding agent_fee for dividend from 'other_commissions' (via <corporate_actions>): {ca_id_for_log} as it should be caught by <cash_in_outs> processing.")
                                         continue
                                     
                                     if ca_type_id == 'tax' or ca_type_id == 'tax_reverted':
-                                        logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Excluding tax from other_commissions (via <corporate_actions>): {ca_id_for_log}")
                                         continue
 
                                     category_key_ca = None
@@ -745,9 +703,7 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
                                         'source': f"CA ID: {ca_id_for_log}, {file_instance.original_filename}"
                                     })
                                     total_other_commissions_rub += amount_rub_ca
-                                    logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Adding to other_commissions (from <corporate_actions>): Category='{category_key_ca}', Currency='{ca_currency}', Amount='{actual_expense_amount_ca}', RUB='{amount_rub_ca}'. Total now for this cat/curr: {other_commissions_details[category_key_ca]['currencies'][ca_currency]}")
                 
-                logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Starting processing <cash_in_outs> for dividend agent fees in file: {file_instance.original_filename}")
                 cash_in_outs_element = root.find('.//cash_in_outs') 
                 
                 if cash_in_outs_element:
@@ -770,11 +726,9 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
                                 try:
                                     cio_date_obj = datetime.strptime(cio_datetime_str.split(' ')[0], '%Y-%m-%d').date()
                                 except ValueError:
-                                    logger.warning(f"FFG_NDFL: COMMISSION_DEBUG: Некорректная дата '{cio_datetime_str}' для CIO ID {cio_id_for_log} (агентская комиссия по дивидендам).")
                                     continue
                             
                             if not cio_date_obj:
-                                logger.warning(f"FFG_NDFL: COMMISSION_DEBUG: Отсутствует дата для CIO ID {cio_id_for_log} (агентская комиссия по дивидендам).")
                                 continue
 
                             if cio_date_obj.year != target_report_year:
@@ -786,7 +740,6 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
                                 actual_commission_amount = abs(amount_val_cio)
                                 
                                 if not cio_currency:
-                                    logger.warning(f"FFG_NDFL: COMMISSION_DEBUG: Пропуск агентской комиссии по дивидендам (ID: {cio_id_for_log}) без указания валюты.")
                                     continue
                                 
                                 ticker_match = re.search(r'\(([^)]+?\.US|[A-Z]{2,6}\.(?:KZ|HK)|[A-Z0-9]{1,6})\)', cio_comment_original)
@@ -822,30 +775,21 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
                                     'source_file': file_instance.original_filename,
                                     'transaction_id': node_cio.findtext('transaction_id', node_cio.findtext('id', 'N/A')) 
                                 })
-                                logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Добавлена агентская комиссия по дивидендам (из <cash_in_outs>): Категория='{category_key_div_comm}', Валюта='{cio_currency}', Сумма='{actual_commission_amount}', Сумма RUB='{amount_rub_cio}'")
                             elif amount_val_cio > Decimal(0):
-                                 logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Найдена агентская комиссия по дивидендам (ID: {cio_id_for_log} в <cash_in_outs>) с положительной суммой '{amount_val_cio}'. Пропускается, так как ожидается расход.")
+                                 pass
 
         except ET.ParseError as e_parse:
             _processing_had_error[0] = True
-            logger.error(f"FFG_NDFL: COMMISSION_DEBUG: Ошибка парсинга XML в {file_instance.original_filename} при расчете комиссий: {e_parse}", exc_info=True)
             messages.error(request, f"Ошибка парсинга XML в файле {file_instance.original_filename} при расчете детализированных комиссий.")
         except Exception as e:
             _processing_had_error[0] = True
-            logger.error(f"FFG_NDFL: COMMISSION_DEBUG: Неожиданная ошибка при обработке файла {file_instance.original_filename} для комиссий: {e}", exc_info=True)
             messages.error(request, f"Неожиданная ошибка при обработке файла {file_instance.original_filename} для детализированных комиссий.")
 
-    logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Finished _calculate_additional_commissions.")
-    logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Returning dividend_commissions: {json.dumps({k: {'amount_by_currency': dict(v['amount_by_currency']), 'amount_rub': str(v['amount_rub'])} for k, v in dividend_commissions.items()}, default=str)}")
-    logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Returning other_commissions_details: {json.dumps({k: {kc: str(vc) for kc, vc in v['currencies'].items()} for k, v in other_commissions_details.items()}, default=str)}") # Исправлено для корректного дампа
-    logger.info(f"FFG_NDFL: COMMISSION_DEBUG: Total other commissions RUB: {total_other_commissions_rub:.2f}")
     return dividend_commissions, other_commissions_details, total_other_commissions_rub
 
 
 def process_and_get_trade_data(request, user, target_report_year):
     _processing_had_error_local_flag = [False] 
-
-    logger.info(f"FFG_NDFL: PROCESS_DEBUG: Starting process_and_get_trade_data for year {target_report_year} for user {user.username}")
 
     full_instrument_trade_history_for_fifo = defaultdict(list)
     trade_and_holding_ops = [] 
@@ -857,10 +801,7 @@ def process_and_get_trade_data(request, user, target_report_year):
     relevant_files_for_history = UploadedXMLFile.objects.filter(user=user).order_by('year', 'uploaded_at')
     if not relevant_files_for_history.exists():
         messages.info(request, f"У вас нет загруженных файлов для анализа истории.") # Сообщение изменено
-        logger.info(f"FFG_NDFL: PROCESS_DEBUG: No relevant files found for user {user.username}. Returning empty data.")
         return {}, [], Decimal(0), Decimal(0), _processing_had_error_local_flag[0], defaultdict(lambda: {'amount_by_currency': defaultdict(Decimal),'amount_rub': Decimal(0), 'details': []}), defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []}), Decimal(0)
-
-    logger.info(f"FFG_NDFL: PROCESS_DEBUG: Found {relevant_files_for_history.count()} files for user {user.username} for full history processing.")
 
 
     trade_detail_tags = ['trade_id', 'date', 'operation', 'instr_nm', 'instr_type', 'instr_kind', 'p', 'curr_c', 'q', 'summ', 'commission', 'issue_nb', 'isin']
@@ -878,16 +819,13 @@ def process_and_get_trade_data(request, user, target_report_year):
                     date_start_el_temp = root_temp.find('.//date_start')
                     if date_start_el_temp is not None and date_start_el_temp.text:
                         earliest_report_start_datetime = datetime.strptime(date_start_el_temp.text.strip(), '%Y-%m-%d %H:%M:%S')
-                        logger.info(f"FFG_NDFL: PROCESS_DEBUG: Earliest report start datetime set to {earliest_report_start_datetime} from file {first_file_instance.original_filename}")
         except Exception as e_early_date:
-            logger.error(f"FFG_NDFL: PROCESS_DEBUG: Не удалось определить самую раннюю дату начала отчета из {first_file_instance.original_filename}: {e_early_date}")
             _processing_had_error_local_flag[0] = True 
 
     processed_initial_holdings_file_ids = set() 
     dividend_events_in_current_file = {} 
 
     for file_instance in relevant_files_for_history:
-        logger.info(f"FFG_NDFL: PROCESS_DEBUG: Processing file for main data: {file_instance.original_filename} (Year: {file_instance.year})")
         dividend_events_in_current_file.clear() 
         is_target_year_file_for_dividends = (file_instance.year == target_report_year) 
 
@@ -897,7 +835,6 @@ def process_and_get_trade_data(request, user, target_report_year):
                 try: xml_string_loop = content_bytes.decode('utf-8')
                 except UnicodeDecodeError: xml_string_loop = content_bytes.decode('windows-1251', errors='replace')
                 if not xml_string_loop:
-                    logger.warning(f"FFG_NDFL: PROCESS_DEBUG: XML string is empty for file {file_instance.original_filename}. Skipping.")
                     continue
                 root = ET.fromstring(xml_string_loop)
 
@@ -905,10 +842,9 @@ def process_and_get_trade_data(request, user, target_report_year):
                 current_file_start_dt = None
                 if current_file_date_start_str:
                     try: current_file_start_dt = datetime.strptime(current_file_date_start_str, '%Y-%m-%d %H:%M:%S')
-                    except ValueError: logger.warning(f"FFG_NDFL: PROCESS_DEBUG: Некорректная date_start {current_file_date_start_str} в {file_instance.original_filename}")
+                    except ValueError: pass
 
                 if earliest_report_start_datetime and current_file_start_dt == earliest_report_start_datetime and file_instance.id not in processed_initial_holdings_file_ids:
-                    logger.info(f"FFG_NDFL: PROCESS_DEBUG: Processing initial holdings for file {file_instance.original_filename}")
                     account_at_start_el = root.find('.//account_at_start')
                     if account_at_start_el is not None:
                         positions_el_path = './/positions_from_ts/ps/pos' # Стандартный путь
@@ -916,7 +852,6 @@ def process_and_get_trade_data(request, user, target_report_year):
                         if positions_el is None: # Альтернативный путь, если бумаги напрямую в ps
                             positions_el_path_alt = './/positions_from_ts/ps'
                             positions_el = account_at_start_el.find(positions_el_path_alt)
-                            logger.info(f"FFG_NDFL: PROCESS_DEBUG: Initial holdings using alternative path '{positions_el_path_alt}' for file {file_instance.original_filename}")
 
 
                         if positions_el is not None: 
@@ -927,7 +862,7 @@ def process_and_get_trade_data(request, user, target_report_year):
                                         isin_el_fallback = pos_node.find('isin')
                                         isin = isin_el_fallback.text.strip() if isin_el_fallback is not None and isin_el_fallback.text and isin_el_fallback.text.strip() != '-' else None
 
-                                    if not isin: instr_nm_log = pos_node.findtext('name', 'N/A').strip(); logger.info(f"FFG_NDFL: PROCESS_DEBUG: Пропуск НО в {file_instance.original_filename} для '{instr_nm_log}': отсутствует ISIN."); continue
+                                    if not isin: instr_nm_log = pos_node.findtext('name', 'N/A').strip(); continue
                                     quantity = _str_to_decimal_safe(pos_node.findtext('q', '0'), 'q НО', isin, _processing_had_error_local_flag)
                                     if quantity <= 0: continue 
                                     bal_price_per_share_curr = _str_to_decimal_safe(pos_node.findtext('bal_price_a', '0'), 'bal_price_a НО', isin, _processing_had_error_local_flag)
@@ -969,9 +904,8 @@ def process_and_get_trade_data(request, user, target_report_year):
                                         'operation_type': 'buy', 
                                         'file_source': op_details_dict_for_ref['file_source'] 
                                     })
-                                    logger.info(f"FFG_NDFL: PROCESS_DEBUG: Added initial holding: ISIN {isin}, Q {quantity}, P {bal_price_per_share_curr} {currency_code}, TotalCostRUB {total_cost_rub_init}")
                                 except (AttributeError, ValueError) as e_init: 
-                                     _processing_had_error_local_flag[0] = True; logger.error(f"FFG_NDFL: PROCESS_DEBUG: Ошибка парсинга НО в {file_instance.original_filename} для ISIN {isin if 'isin' in locals() else 'unknown'}: {e_init}", exc_info=True)
+                                     _processing_had_error_local_flag[0] = True
                         processed_initial_holdings_file_ids.add(file_instance.id) 
 
                 trades_element = root.find('.//trades')
@@ -990,13 +924,13 @@ def process_and_get_trade_data(request, user, target_report_year):
                                     isin_el_issue_nb = node_element.find('issue_nb')
                                     current_isin = isin_el_issue_nb.text.strip() if isin_el_issue_nb is not None and isin_el_issue_nb.text and isin_el_issue_nb.text.strip() != '-' else None
                                 
-                                if not current_isin: logger.warning(f"FFG_NDFL: PROCESS_DEBUG: Пропуск сделки (ID: {current_trade_id_for_log}): нет ISIN/ISSUE_NB."); _processing_had_error_local_flag[0] = True; continue
+                                if not current_isin: _processing_had_error_local_flag[0] = True; continue
                                 trade_data_dict['isin'] = current_isin 
 
                                 for tag in trade_detail_tags: 
                                     data_el = node_element.find(tag)
                                     trade_data_dict[tag] = (data_el.text.strip() if data_el is not None and data_el.text is not None else None)
-                                if not trade_data_dict.get('isin') and current_isin : trade_data_dict['isin'] = current_isin 
+                                if not trade_data_dict.get('isin') and current_isin : trade_data_dict['isin'] = current_isin
 
                                 trade_data_dict['p'] = _str_to_decimal_safe(trade_data_dict.get('p'), 'p', current_trade_id_for_log, _processing_had_error_local_flag)
                                 trade_data_dict['q'] = _str_to_decimal_safe(trade_data_dict.get('q'), 'q', current_trade_id_for_log, _processing_had_error_local_flag)
@@ -1023,7 +957,7 @@ def process_and_get_trade_data(request, user, target_report_year):
                                         else: _processing_had_error_local_flag[0] = True; rate_str = "валюта не найдена"; messages.error(request, f"Валюта {currency_code} не найдена для сделки {current_trade_id_for_log}.")
                                 trade_data_dict['transaction_cbr_rate_str'] = rate_str 
 
-                                if currency_code != 'RUB' and rate_decimal is None: _processing_had_error_local_flag[0] = True; logger.error(f"FFG_NDFL: PROCESS_DEBUG: Пропуск сделки {current_trade_id_for_log} в FIFO (нет курса {currency_code})."); continue
+                                if currency_code != 'RUB' and rate_decimal is None: _processing_had_error_local_flag[0] = True; continue
 
                                 full_instrument_trade_history_for_fifo[current_isin].append(trade_data_dict) 
 
@@ -1038,11 +972,10 @@ def process_and_get_trade_data(request, user, target_report_year):
                                 }
                                 trade_and_holding_ops.append(op_for_processing)
                             except Exception as e_node: 
-                                _processing_had_error_local_flag[0] = True; logger.error(f"FFG_NDFL: PROCESS_DEBUG: Ошибка обработки узла сделки (ID: {current_trade_id_for_log}) в {file_instance.original_filename}: {e_node}", exc_info=True)
+                                _processing_had_error_local_flag[0] = True
                                 messages.error(request, f"Ошибка данных для сделки ID: {current_trade_id_for_log} в файле {file_instance.original_filename}."); continue
                 
                 if is_target_year_file_for_dividends:
-                    logger.info(f"FFG_NDFL: PROCESS_DEBUG: Processing dividends for target year file {file_instance.original_filename}")
                     cash_in_outs_element = root.find('.//cash_in_outs')
                     if cash_in_outs_element:
                         for node_cio in cash_in_outs_element.findall('node'):
@@ -1068,7 +1001,7 @@ def process_and_get_trade_data(request, user, target_report_year):
                                     if payment_date_str:
                                         try: 
                                             dt_part = payment_date_str.split(' ')[0]; payment_date_obj = datetime.strptime(dt_part, '%Y-%m-%d').date()
-                                        except ValueError: logger.warning(f"FFG_NDFL: PROCESS_DEBUG: Некорректная дата выплаты дивиденда '{payment_date_str}' (ID {cio_id_for_log})"); continue
+                                        except ValueError: continue
                                     
                                     if not payment_date_obj or payment_date_obj.year != target_report_year: continue
 
@@ -1094,9 +1027,9 @@ def process_and_get_trade_data(request, user, target_report_year):
                                         }
                                     else: 
                                         dividend_events_in_current_file[div_event_key]['amount'] += amount_val
-                                    # logger.info(f"FFG_NDFL: PROCESS_DEBUG: Processed dividend event: {dividend_events_in_current_file[div_event_key]}") # Закомментировано для уменьшения логов
+                                    # Processed dividend event
                             except Exception as e_div_pre_parse: 
-                                logger.error(f"FFG_NDFL: PROCESS_DEBUG: Ошибка предварительного парсинга дивиденда (ID: {node_cio.findtext('id', 'N/A_CIO_DIV_ERR')}) в {file_instance.original_filename}: {e_div_pre_parse}", exc_info=True)
+                                pass
                         
                         for node_cio in cash_in_outs_element.findall('node'):
                             try:
@@ -1136,15 +1069,15 @@ def process_and_get_trade_data(request, user, target_report_year):
                                     
                                     if target_dividend_event:
                                         target_dividend_event['tax_amount'] += abs(tax_amount_val) 
-                                        # logger.info(f"FFG_NDFL: PROCESS_DEBUG: Added tax {abs(tax_amount_val)} to dividend event {target_dividend_event.get('corporate_action_id')}") # Закомментировано
-                                    else: logger.warning(f"FFG_NDFL: PROCESS_DEBUG: Не удалось связать налог (ID {cio_id_for_log_tax}, CA_ID: {ca_id_from_details_cio}, Дата: {tax_date_obj}) с дивидендом в файле {file_instance.original_filename}.")
+                                        # Added tax to dividend event
+                                    else: pass
                             except Exception as e_tax_parse: 
-                                logger.error(f"FFG_NDFL: PROCESS_DEBUG: Ошибка парсинга узла налога (ID: {node_cio.findtext('id', 'N/A_CIO_TAX_ERR')}) в {file_instance.original_filename}: {e_tax_parse}", exc_info=True)
+                                pass
 
                     all_dividend_events_final_list.extend(dividend_events_in_current_file.values()) 
 
-        except ET.ParseError: _processing_had_error_local_flag[0] = True; logger.warning(f"FFG_NDFL: PROCESS_DEBUG: Ошибка парсинга XML: {file_instance.original_filename}", exc_info=True); messages.error(request, f"Ошибка парсинга XML в файле {file_instance.original_filename}.")
-        except Exception as e: _processing_had_error_local_flag[0] = True; logger.error(f"FFG_NDFL: PROCESS_DEBUG: Ошибка обработки файла {file_instance.original_filename}: {e}", exc_info=True); messages.error(request, f"Неожиданная ошибка при обработке файла {file_instance.original_filename}.")
+        except ET.ParseError: _processing_had_error_local_flag[0] = True; messages.error(request, f"Ошибка парсинга XML в файле {file_instance.original_filename}.")
+        except Exception as e: _processing_had_error_local_flag[0] = True; messages.error(request, f"Неожиданная ошибка при обработке файла {file_instance.original_filename}.")
 
     for div_event in all_dividend_events_final_list:
         currency_code_final = div_event['currency']; payment_date_final = div_event['date']; ticker_final = div_event['ticker']
@@ -1171,7 +1104,7 @@ def process_and_get_trade_data(request, user, target_report_year):
     conversion_events_for_display_accumulator = [] 
     trade_and_holding_ops.sort(key=lambda x: x.get('datetime_obj') or datetime.min) 
     if trade_and_holding_ops:
-        logger.info(f"FFG_NDFL: PROCESS_DEBUG: Starting FIFO processing for {len(trade_and_holding_ops)} operations.")
+        pass
     _process_all_operations_for_fifo(request, trade_and_holding_ops, full_instrument_trade_history_for_fifo, relevant_files_for_history, conversion_events_for_display_accumulator, _processing_had_error_local_flag)
 
 
@@ -1181,7 +1114,7 @@ def process_and_get_trade_data(request, user, target_report_year):
             dt_obj = datetime.min 
             if trade_dict_updated_with_fifo.get('date'): 
                 try: dt_obj = datetime.strptime(trade_dict_updated_with_fifo['date'], '%Y-%m-%d %H:%M:%S')
-                except ValueError: logger.warning(f"FFG_NDFL: Некорректная дата в trade_dict_updated_with_fifo: {trade_dict_updated_with_fifo.get('date')}")
+                except ValueError: pass
             
             # Добавляем is_aggregated по умолчанию false, если его нет
             trade_dict_updated_with_fifo.setdefault('is_aggregated', False)
@@ -1342,7 +1275,6 @@ def process_and_get_trade_data(request, user, target_report_year):
     instruments_with_sales_in_target_year = set()
     # Сканируем продажи ТОЛЬКО в файлах целевого года для определения, чью историю показывать.
     files_for_sales_scan_target_year_only = UploadedXMLFile.objects.filter(user=user, year=target_report_year) 
-    logger.info(f"FFG_NDFL: PROCESS_DEBUG: Files for sales scan (target year {target_report_year} only): {[f.original_filename for f in files_for_sales_scan_target_year_only]}")
 
     if files_for_sales_scan_target_year_only.exists():
         for file_instance_scan in files_for_sales_scan_target_year_only:
@@ -1375,10 +1307,10 @@ def process_and_get_trade_data(request, user, target_report_year):
                                             if sale_datetime_scan.year == target_report_year:
                                                 instruments_with_sales_in_target_year.add(isin_to_check_sale)
                                         except ValueError:
-                                            logger.warning(f"FFG_NDFL: PROCESS_DEBUG: Некорректная дата при сканировании продаж: {date_str_sale_scan}")
+                                            pass
 
 
-            except Exception as e_sales_scan: _processing_had_error_local_flag[0] = True; logger.error(f"FFG_NDFL: PROCESS_DEBUG: Ошибка сканирования продаж: {e_sales_scan}", exc_info=True)
+            except Exception as e_sales_scan: _processing_had_error_local_flag[0] = True
 
     final_instrument_event_history = defaultdict(list)
     conversion_map_old_to_new = {}; conversion_map_new_to_old = {}; processed_conversion_ids_for_map = set()
@@ -1418,7 +1350,7 @@ def process_and_get_trade_data(request, user, target_report_year):
         if not current_event_isin: 
             log_id = "N/A"; 
             if details: log_id = details.get('trade_id', details.get('corp_action_id', 'Details available but no ID'))
-            logger.warning(f"FFG_NDFL: PROCESS_DEBUG: Пропуск события без основного ISIN при финальной группировке: {log_id}"); continue
+            continue
 
         grouping_key_isin = current_event_isin
         # Проходим по цепочке до самого "нового" ISIN для группировки
@@ -1476,10 +1408,8 @@ def process_and_get_trade_data(request, user, target_report_year):
                                 if match_rate:
                                     try: cbr_rate_for_sale = Decimal(match_rate.group(1))
                                     except InvalidOperation: 
-                                        logger.error(f"FFG_NDFL: PROCESS_DEBUG: Failed to parse CBR rate: '{rate_str_from_event}' for sale ID {details.get('trade_id')}. Using 0 for non-RUB.")
                                         if currency_code != 'RUB': cbr_rate_for_sale = Decimal(0) 
                                 elif currency_code != 'RUB': 
-                                    logger.error(f"FFG_NDFL: PROCESS_DEBUG: CBR rate string not found or unmatchable: '{rate_str_from_event}' for currency {currency_code}, sale ID {details.get('trade_id')}. Using 0.")
                                     cbr_rate_for_sale = Decimal(0)
 
                             sale_amount_curr = _str_to_decimal_safe(sale_amount_curr, 'sale_amount_for_total_profit_calc', details.get('trade_id'), _processing_had_error_local_flag)
@@ -1504,7 +1434,6 @@ def process_and_get_trade_data(request, user, target_report_year):
     # Сначала собираем все ID покупок, использованных для продаж целевого года
     used_buy_ids_for_target_year = set()
     target_year_sales = []
-    logger.info(f"FFG_NDFL: DEBUG: Начинаем сбор ID покупок для продаж {target_report_year} года")
     
     for isin_key, event_list_for_isin in final_instrument_event_history.items():
         for event_wrapper in event_list_for_isin:
@@ -1521,9 +1450,7 @@ def process_and_get_trade_data(request, user, target_report_year):
                             used_buy_ids_for_target_year.update(details['used_buy_ids'])
                             # Отладка
                             if details['used_buy_ids']:
-                                logger.info(f"FFG_NDFL: DEBUG: Продажа {details.get('trade_id')} использовала покупки: {details['used_buy_ids']}")
-    
-    logger.info(f"FFG_NDFL: DEBUG: Всего собрано ID покупок для целевого года: {len(used_buy_ids_for_target_year)}, ID: {used_buy_ids_for_target_year}")
+                                pass
     
     # Помечаем операции на основе их участия в продажах целевого года
     for isin_key, event_list_for_isin in final_instrument_event_history.items():
@@ -1538,7 +1465,6 @@ def process_and_get_trade_data(request, user, target_report_year):
                     
                     if is_aggregated:
                         # Для агрегированных сделок проверяем исходные ID
-                        logger.info(f"FFG_NDFL: DEBUG: Проверка агрегированной покупки {trade_id}")
                         original_ids = details.get('original_trade_ids', [])
                         
                         if original_ids:
@@ -1547,24 +1473,19 @@ def process_and_get_trade_data(request, user, target_report_year):
                             for orig_id in original_ids:
                                 if orig_id in used_buy_ids_for_target_year:
                                     is_relevant = True
-                                    logger.info(f"FFG_NDFL: DEBUG: Агрегированная покупка содержит релевантный ID: {orig_id}")
                                     break
                             
                             details['is_relevant_for_target_year'] = is_relevant
                             if not is_relevant:
-                                logger.info(f"FFG_NDFL: DEBUG: Агрегированная покупка не содержит релевантных ID из {original_ids}")
+                                pass
                         else:
-                            logger.warning(f"FFG_NDFL: DEBUG: Не найдены оригинальные ID для агрегированной покупки: {trade_id}")
                             details.setdefault('is_relevant_for_target_year', False)
                     else:
                         # Для обычных покупок
-                        logger.info(f"FFG_NDFL: DEBUG: Проверка покупки ID={trade_id}, есть в used_buy_ids={trade_id in used_buy_ids_for_target_year}")
                         if trade_id and trade_id in used_buy_ids_for_target_year:
                             details['is_relevant_for_target_year'] = True
-                            logger.info(f"FFG_NDFL: DEBUG: Покупка {trade_id} помечена как релевантная")
                         else:
                             details.setdefault('is_relevant_for_target_year', False)
-                            logger.info(f"FFG_NDFL: DEBUG: Покупка {trade_id} помечена как НЕрелевантная")
                 # Для начальных остатков проверяем их ID
                 elif event_wrapper.get('display_type') == 'initial_holding':
                     trade_id = details.get('trade_id')
@@ -1594,8 +1515,16 @@ def process_and_get_trade_data(request, user, target_report_year):
     dividend_commissions_details, other_commissions_details, total_other_commissions_rub_val = _calculate_additional_commissions(request, user, target_report_year, files_for_sales_scan_target_year_only, _processing_had_error_local_flag)
 
 
-    logger.info(f"FFG_NDFL: PROCESS_DEBUG: Finished process_and_get_trade_data for year {target_report_year}.")
     if _processing_had_error_local_flag[0]: 
-        logger.warning(f"FFG_NDFL: PROCESS_DEBUG: Processing for year {target_report_year} had one or more errors.")
-
-    return final_instrument_event_history, all_dividend_events_final_list, total_dividends_rub_for_year, total_sales_profit_rub_for_year, _processing_had_error_local_flag[0], dividend_commissions_details, other_commissions_details, total_other_commissions_rub_val
+        pass
+    
+    return (
+        final_instrument_event_history, 
+        all_dividend_events_final_list, 
+        total_dividends_rub_for_year, 
+        total_sales_profit_rub_for_year, 
+        _processing_had_error_local_flag[0], 
+        dividend_commissions_details, 
+        other_commissions_details, 
+        total_other_commissions_rub_val
+    )
