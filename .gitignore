@@ -122,3 +122,10 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Игнорировать дублирующуюся папку
+NDFL/NDFL/
+NDFL/currency_CBRF/
+NDFL/reports_to_ndfl/
+NDFL/manage.py
+NDFL/*.py
