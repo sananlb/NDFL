@@ -153,7 +153,18 @@ def upload_xml_file(request):
                 other_commissions_data = converted_other_commissions
 
 
-            context['instrument_event_history'] = instrument_event_history
+            # Сортируем так, чтобы опционы (OPTION_*) показывались первыми
+            sorted_instrument_history = {}
+            # Сначала добавляем опционы
+            for key in sorted(instrument_event_history.keys()):
+                if key.startswith('OPTION_'):
+                    sorted_instrument_history[key] = instrument_event_history[key]
+            # Затем добавляем остальные инструменты
+            for key in sorted(instrument_event_history.keys()):
+                if not key.startswith('OPTION_'):
+                    sorted_instrument_history[key] = instrument_event_history[key]
+
+            context['instrument_event_history'] = sorted_instrument_history
             context['dividend_history'] = dividend_events
             context['total_dividends_rub'] = total_dividends_rub
             context['total_sales_profit_rub'] = total_sales_profit

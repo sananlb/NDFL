@@ -43,11 +43,11 @@ def _get_exchange_rate_for_date(request, currency_obj, target_date_obj, rate_pur
                         rate_data_for_alias_creation = rate_info; break
             if rate_data_for_alias_creation:
                 try:
-                    aliased_rate, created = ExchangeRate.objects.get_or_create(
+                    aliased_rate, _ = ExchangeRate.objects.get_or_create(
                         currency=currency_obj, date=target_date_obj,
                         defaults={'value': rate_data_for_alias_creation['value'], 'nominal': rate_data_for_alias_creation['nominal']}
                     )
-                    if created: messages.info(request, f"Создан 'алиас' курса для {currency_obj.char_code} на {target_date_obj.strftime('%d.%m.%Y')} исп. данные от {actual_rates_date_from_cbr.strftime('%d.%m.%Y')}.")
+                    # Убрано уведомление об алиасе курса
                     return aliased_rate, True, aliased_rate.unit_rate
                 except KeyError as e_key: pass
                 except Exception as e_alias: pass
@@ -358,9 +358,14 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                     buy_quantity_remaining_for_lot -= qty_to_cover_short
                     pending_short_entry['q_uncovered'] -= qty_to_cover_short
 
+                    # Добавляем ID текущей покупки в used_buy_ids продажи, которая была шортом
+                    if 'used_buy_ids' not in original_short_trade_ref:
+                        original_short_trade_ref['used_buy_ids'] = []
+                    original_short_trade_ref['used_buy_ids'].append(op.get('trade_id'))
+
                     if pending_short_entry['q_uncovered'] <= Decimal('0.000001'):
                         original_short_trade_ref['short_sale_status'] = 'covered_by_future'
-                        pending_short_sales[op_isin].popleft() 
+                        pending_short_sales[op_isin].popleft()
                     else:
                         original_short_trade_ref['short_sale_status'] = 'partially_covered_short'
             
@@ -394,9 +399,25 @@ def _process_all_operations_for_fifo(request, operations_to_process,
             else: 
                 commission_sell_rub = commission_sell_orig_curr.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-            # Начальные расходы для этой продажи = только ее комиссия.
+            # Начальные расходы для этой продажи = комиссия + стоимость опциона (если есть).
             # Стоимость акций будет добавляться по мере покрытия.
-            trade_dict_ref['fifo_cost_rub_decimal'] = commission_sell_rub 
+            option_cost_rub = Decimal(0)
+
+            # Если эта продажа через исполнение опциона, добавляем стоимость опциона
+            if trade_dict_ref.get('is_option_delivery') and trade_dict_ref.get('related_option_purchase'):
+                option_data = trade_dict_ref['related_option_purchase']
+                option_price = option_data.get('summ', Decimal(0))  # Стоимость опциона
+                option_commission = option_data.get('commission', Decimal(0))  # Комиссия опциона
+                option_currency = option_data.get('curr_c', '').strip().upper()
+                option_cbr_rate = option_data.get('cbr_rate_decimal', Decimal(1))
+
+                # Переводим стоимость опциона в рубли
+                if option_currency != 'RUB' and option_cbr_rate:
+                    option_cost_rub = ((option_price + option_commission) * option_cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                else:
+                    option_cost_rub = (option_price + option_commission).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            trade_dict_ref['fifo_cost_rub_decimal'] = (commission_sell_rub + option_cost_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             trade_dict_ref['short_sale_status'] = 'covered_by_past' # Предположение
             # Добавляем список ID покупок, использованных для этой продажи
             trade_dict_ref['used_buy_ids'] = []
@@ -418,7 +439,7 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                     trade_dict_ref['used_buy_ids'].append(buy_lot['original_trade_id'])
                 if buy_lot['q_remaining'] <= Decimal('0.000001'): current_buy_queue.popleft()
             
-            trade_dict_ref['fifo_cost_rub_decimal'] = (cost_of_shares_from_past_buys_rub + commission_sell_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            trade_dict_ref['fifo_cost_rub_decimal'] = (cost_of_shares_from_past_buys_rub + commission_sell_rub + option_cost_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
             # Этап 2: Если не покрыто, пытаемся применить конвертации
             if sell_q_to_cover > Decimal('0.000001'):
@@ -450,7 +471,7 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                             if buy_lot_conv['q_remaining'] <= Decimal('0.000001'): current_buy_queue_after_conv.popleft()
                         
                         cost_of_shares_from_past_buys_rub += cost_from_conversion_lots_rub_pass # Добавляем к общей стоимости акций
-                        trade_dict_ref['fifo_cost_rub_decimal'] = (cost_of_shares_from_past_buys_rub + commission_sell_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        trade_dict_ref['fifo_cost_rub_decimal'] = (cost_of_shares_from_past_buys_rub + commission_sell_rub + option_cost_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                     else: 
                         break 
                 
@@ -468,17 +489,17 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                 })
                 trade_dict_ref['short_sale_status'] = 'pending_cover'
                 # fifo_cost_rub_decimal уже содержит (стоимость_покрытой_части_акций + комиссия_продажи)
-                
-                msg_type = messages.info if final_q_covered_by_past_or_conv == 0 else messages.warning
-                
-                message_text = (f"Продажа {op.get('trade_id','N/A')} ({op_isin}) "
-                                f"{'не покрыта' if final_q_covered_by_past_or_conv == 0 else 'не полностью покрыта'} "
-                                f"прошлыми покупками/конвертациями. "
-                                f"Требовалось: {op['quantity']}, покрыто FIFO (до): {final_q_covered_by_past_or_conv}. "
-                                f"Остаток {sell_q_to_cover} зарегистрирован как потенциальный шорт. "
-                                f"Текущие расходы (по ранее покрытой части + комиссия продажи): {trade_dict_ref['fifo_cost_rub_decimal']:.2f} RUB.")
-                msg_type(request, message_text)
-                
+
+                # Убрано уведомление о непокрытых продажах (шортах)
+                # msg_type = messages.info if final_q_covered_by_past_or_conv == 0 else messages.warning
+                # message_text = (f"Продажа {op.get('trade_id','N/A')} ({op_isin}) "
+                #                 f"{'не покрыта' if final_q_covered_by_past_or_conv == 0 else 'не полностью покрыта'} "
+                #                 f"прошлыми покупками/конвертациями. "
+                #                 f"Требовалось: {op['quantity']}, покрыто FIFO (до): {final_q_covered_by_past_or_conv}. "
+                #                 f"Остаток {sell_q_to_cover} зарегистрирован как потенциальный шорт. "
+                #                 f"Текущие расходы (по ранее покрытой части + комиссия продажи): {trade_dict_ref['fifo_cost_rub_decimal']:.2f} RUB.")
+                # msg_type(request, message_text)
+
                 # Строка fifo_cost_rub_str будет установлена позже
                 if final_q_covered_by_past_or_conv > 0 : # Было частичное покрытие до шорта
                      trade_dict_ref['fifo_cost_rub_str'] = f"Частично: {trade_dict_ref['fifo_cost_rub_decimal']:.2f} (для {final_q_covered_by_past_or_conv} из {op['quantity']}) + шорт {sell_q_to_cover} шт."
@@ -528,6 +549,39 @@ def _str_to_decimal_safe(val_str, field_name_for_log="", context_id_for_log="", 
         if _processing_had_error is not None: 
             _processing_had_error[0] = True 
         return Decimal(0) 
+
+def _parse_option_instr_name(option_name):
+    if not option_name:
+        return None
+    match = re.match(
+        r'^[\+\-]?(?P<underlying>[A-Z0-9]+)\.(?P<exp>\d{2}[A-Z]{3}\d{4})\.(?P<opt_type>[CP])(?P<strike>\d+(?:\.\d+)?)$',
+        option_name.strip().upper()
+    )
+    if not match:
+        return None
+
+    exp = match.group('exp')
+    month_map = {
+        'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+        'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
+    }
+    try:
+        day = int(exp[:2])
+        mon = month_map.get(exp[2:5])
+        year = int(exp[5:9])
+        if not mon:
+            return None
+        expiry_date = date(year, mon, day)
+        strike = Decimal(match.group('strike'))
+    except (ValueError, InvalidOperation):
+        return None
+
+    return {
+        'underlying': match.group('underlying'),
+        'expiry_date': expiry_date,
+        'option_type': match.group('opt_type'),
+        'strike': strike
+    }
 
 def _calculate_additional_commissions(request, user, target_report_year, target_year_files, _processing_had_error):
     dividend_commissions = defaultdict(lambda: {'amount_by_currency': defaultdict(Decimal), 'amount_rub': Decimal(0), 'details': []})
@@ -804,7 +858,11 @@ def process_and_get_trade_data(request, user, target_report_year):
         return {}, [], Decimal(0), Decimal(0), _processing_had_error_local_flag[0], defaultdict(lambda: {'amount_by_currency': defaultdict(Decimal),'amount_rub': Decimal(0), 'details': []}), defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []}), Decimal(0)
 
 
-    trade_detail_tags = ['trade_id', 'date', 'operation', 'instr_nm', 'instr_type', 'instr_kind', 'p', 'curr_c', 'q', 'summ', 'commission', 'issue_nb', 'isin']
+    trade_detail_tags = ['trade_id', 'date', 'operation', 'instr_nm', 'instr_type', 'instr_kind', 'p', 'curr_c', 'q', 'summ', 'commission', 'issue_nb', 'isin', 'trade_nb']
+
+    # Словарь для хранения опционных сделок: {trade_id: option_purchase_data}
+    option_purchases_by_delivery = {}
+    used_option_trade_ids = set()
 
     earliest_report_start_datetime = None
     if relevant_files_for_history: # earliest_report_start_datetime определяется из самого первого файла по дате
@@ -914,9 +972,68 @@ def process_and_get_trade_data(request, user, target_report_year):
                     if detailed_element:
                         for node_element in detailed_element.findall('node'):
                             trade_data_dict = {'file_source': f"{file_instance.original_filename} (за {file_instance.year})"}
-                            current_trade_id_for_log = node_element.findtext('trade_id', 'N/A') 
+                            current_trade_id_for_log = node_element.findtext('trade_id', 'N/A')
                             try:
                                 instr_type_el = node_element.find('instr_type'); instr_type_val = instr_type_el.text.strip() if instr_type_el is not None and instr_type_el.text else None
+
+                                # Обрабатываем опционы (instr_type='4') отдельно
+                                if instr_type_val == '4':
+                                    # Парсим данные опциона
+                                    for tag in trade_detail_tags:
+                                        data_el = node_element.find(tag)
+                                        trade_data_dict[tag] = (data_el.text.strip() if data_el is not None and data_el.text is not None else None)
+
+                                    # Обрабатываем только покупки опционов
+                                    operation = trade_data_dict.get('operation', '').strip().lower()
+                                    if operation == 'buy':
+                                        # Сохраняем опцион для последующей привязки к поставке
+                                        option_trade_id = trade_data_dict.get('trade_id')
+                                        trade_data_dict['p'] = _str_to_decimal_safe(trade_data_dict.get('p'), 'p', current_trade_id_for_log, _processing_had_error_local_flag)
+                                        trade_data_dict['q'] = _str_to_decimal_safe(trade_data_dict.get('q'), 'q', current_trade_id_for_log, _processing_had_error_local_flag)
+                                        trade_data_dict['summ'] = _str_to_decimal_safe(trade_data_dict.get('summ'), 'summ', current_trade_id_for_log, _processing_had_error_local_flag)
+                                        trade_data_dict['commission'] = _str_to_decimal_safe(trade_data_dict.get('commission'), 'commission', current_trade_id_for_log, _processing_had_error_local_flag)
+
+                                        # Парсим дату
+                                        op_datetime_obj_opt = None
+                                        if trade_data_dict.get('date'):
+                                            try:
+                                                op_datetime_obj_opt = datetime.strptime(trade_data_dict['date'], '%Y-%m-%d %H:%M:%S')
+                                            except ValueError:
+                                                pass
+
+                                        # Получаем курс валюты
+                                        currency_code_opt = trade_data_dict.get('curr_c', '').strip().upper()
+                                        rate_decimal_opt = Decimal("1.0000")
+                                        if currency_code_opt and currency_code_opt not in ['RUB', 'РУБ', 'РУБ.'] and op_datetime_obj_opt:
+                                            currency_model_opt = Currency.objects.filter(char_code=currency_code_opt).first()
+                                            if currency_model_opt:
+                                                _, _, rate_val_opt = _get_exchange_rate_for_date(request, currency_model_opt, op_datetime_obj_opt.date(), f"для опциона {current_trade_id_for_log}")
+                                                if rate_val_opt is not None:
+                                                    rate_decimal_opt = rate_val_opt
+
+                                        trade_data_dict['transaction_cbr_rate_str'] = f"{rate_decimal_opt:.4f}"
+                                        trade_data_dict['datetime_obj'] = op_datetime_obj_opt
+                                        trade_data_dict['cbr_rate_decimal'] = rate_decimal_opt
+
+                                        # Парсим структуру опциона из названия
+                                        option_name = trade_data_dict.get('instr_nm', '')
+                                        parsed_option_info = _parse_option_instr_name(option_name)
+                                        if parsed_option_info:
+                                            trade_data_dict['option_underlying'] = parsed_option_info['underlying']
+                                            trade_data_dict['option_expiry'] = parsed_option_info['expiry_date']
+                                            trade_data_dict['option_type'] = parsed_option_info['option_type']
+                                            trade_data_dict['option_strike'] = parsed_option_info['strike']
+
+                                        # Сохраняем по trade_id опциона для последующего поиска
+                                        if option_trade_id:
+                                            trade_data_dict['option_internal_id'] = option_trade_id
+                                            option_purchases_by_delivery[option_trade_id] = trade_data_dict
+                                        else:
+                                            synthetic_id = f"NO_ID_{len(option_purchases_by_delivery) + 1}"
+                                            trade_data_dict['option_internal_id'] = synthetic_id
+                                            option_purchases_by_delivery[synthetic_id] = trade_data_dict
+                                    continue  # Пропускаем дальнейшую обработку опционов
+
                                 if instr_type_val != '1': continue 
 
                                 isin_el = node_element.find('isin'); current_isin = isin_el.text.strip() if isin_el is not None and isin_el.text and isin_el.text.strip() != '-' else None
@@ -958,6 +1075,13 @@ def process_and_get_trade_data(request, user, target_report_year):
                                 trade_data_dict['transaction_cbr_rate_str'] = rate_str 
 
                                 if currency_code != 'RUB' and rate_decimal is None: _processing_had_error_local_flag[0] = True; continue
+
+                                # Проверяем, является ли эта сделка результатом исполнения опциона
+                                trade_nb = trade_data_dict.get('trade_nb', '')
+                                if trade_nb and 'option_delivery' in trade_nb.lower():
+                                    trade_data_dict['is_option_delivery'] = True
+                                else:
+                                    trade_data_dict['is_option_delivery'] = False
 
                                 full_instrument_trade_history_for_fifo[current_isin].append(trade_data_dict) 
 
@@ -1101,10 +1225,96 @@ def process_and_get_trade_data(request, user, target_report_year):
         total_dividends_rub_for_year += div_event['amount_rub']
 
 
-    conversion_events_for_display_accumulator = [] 
-    trade_and_holding_ops.sort(key=lambda x: x.get('datetime_obj') or datetime.min) 
+    conversion_events_for_display_accumulator = []
+    trade_and_holding_ops.sort(key=lambda x: x.get('datetime_obj') or datetime.min)
     if trade_and_holding_ops:
         pass
+
+    # --- Связывание опционов с поставками ---
+    # Для каждой сделки OPTION_DELIVERY находим соответствующую покупку опциона
+    for isin_key, trades_list in full_instrument_trade_history_for_fifo.items():
+        for trade_dict in trades_list:
+            if trade_dict.get('is_option_delivery'):
+                delivery_date = trade_dict.get('date')
+                if not delivery_date:
+                    continue
+                try:
+                    delivery_dt = datetime.strptime(delivery_date, '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    continue
+
+                # Извлекаем тикер из названия акции (например, PBR.US -> PBR)
+                instr_nm = trade_dict.get('instr_nm', '')
+                ticker_match = None
+                if '.' in instr_nm:
+                    ticker_match = instr_nm.split('.')[0]
+
+                if not ticker_match:
+                    continue
+
+                delivery_operation = trade_dict.get('operation', '').strip().lower()
+                expected_option_type = 'P' if delivery_operation == 'sell' else ('C' if delivery_operation == 'buy' else None)
+                delivery_price = trade_dict.get('p')
+                delivery_qty = trade_dict.get('q')
+
+                matching_candidates = []
+                for opt_id, opt_data in option_purchases_by_delivery.items():
+                    opt_trade_id = opt_data.get('option_internal_id') or opt_data.get('trade_id') or opt_id
+                    if opt_trade_id in used_option_trade_ids:
+                        continue
+
+                    if opt_data.get('option_underlying') != ticker_match:
+                        continue
+                    if expected_option_type and opt_data.get('option_type') and opt_data.get('option_type') != expected_option_type:
+                        continue
+
+                    opt_expiry = opt_data.get('option_expiry')
+                    if opt_expiry:
+                        if opt_expiry > delivery_dt.date():
+                            continue
+                        if (delivery_dt.date() - opt_expiry).days > 7:
+                            continue
+
+                    opt_strike = opt_data.get('option_strike')
+                    if opt_strike is not None and delivery_price is not None:
+                        try:
+                            if abs(opt_strike - delivery_price) > Decimal('0.01'):
+                                continue
+                        except InvalidOperation:
+                            continue
+
+                    opt_qty = opt_data.get('q')
+                    if opt_qty is not None and delivery_qty is not None:
+                        try:
+                            expected_shares = opt_qty * Decimal('100')
+                            if expected_shares != delivery_qty:
+                                continue
+                        except InvalidOperation:
+                            continue
+
+                    opt_dt = opt_data.get('datetime_obj')
+                    if opt_dt and opt_dt >= delivery_dt:
+                        continue
+
+                    matching_candidates.append(opt_data)
+
+                if len(matching_candidates) == 1:
+                    matching_option = matching_candidates[0]
+                    trade_dict['related_option_purchase'] = matching_option
+                    opt_trade_id = matching_option.get('option_internal_id') or matching_option.get('trade_id')
+                    if opt_trade_id:
+                        used_option_trade_ids.add(opt_trade_id)
+                elif len(matching_candidates) > 1:
+                    matching_option = sorted(
+                        matching_candidates,
+                        key=lambda x: x.get('datetime_obj') or datetime.min,
+                        reverse=True
+                    )[0]
+                    trade_dict['related_option_purchase'] = matching_option
+                    opt_trade_id = matching_option.get('option_internal_id') or matching_option.get('trade_id')
+                    if opt_trade_id:
+                        used_option_trade_ids.add(opt_trade_id)
+
     _process_all_operations_for_fifo(request, trade_and_holding_ops, full_instrument_trade_history_for_fifo, relevant_files_for_history, conversion_events_for_display_accumulator, _processing_had_error_local_flag)
 
 
@@ -1225,7 +1435,7 @@ def process_and_get_trade_data(request, user, target_report_year):
         else: 
             if details: details.setdefault('is_aggregated', False) 
             processed_events_for_aggregation.append(current_event_wrapper); loop_idx += 1
-    all_display_events = processed_events_for_aggregation 
+    all_display_events = processed_events_for_aggregation
 
     # Обновление fifo_cost_rub_str для неагрегированных сделок, особенно шортов, ПОСЛЕ агрегации
     for event_wrapper in all_display_events:
@@ -1511,6 +1721,127 @@ def process_and_get_trade_data(request, user, target_report_year):
                 elif not details.get('is_relevant_for_target_year'):
                     details.setdefault('is_relevant_for_target_year', False)
 
+    # --- Цветовая маркировка связей покупка-продажа ---
+    # Генерируем цвета для связанных сделок ПОСЛЕ установки is_relevant_for_target_year
+    available_colors = ['#4FC3F7', '#FF9800', '#66BB6A', '#AB47BC', '#EF5350', '#FFEB3B', '#26C6DA', '#FF7043']
+    color_index = 0
+    pair_to_color = {}  # {(buy_id, sell_id): color} - каждая пара покупка-продажа получает уникальный цвет
+    trade_id_to_colors = {}  # {trade_id: [color1, color2, ...]}
+
+    # Создаем словарь trade_id -> is_relevant для быстрого поиска
+    # Включаем как обычные trade_id, так и original_trade_ids для агрегированных сделок
+    trade_id_to_relevant = {}
+    for isin_key, event_list_for_isin in final_instrument_event_history.items():
+        for event_wrapper in event_list_for_isin:
+            if event_wrapper.get('display_type') == 'trade':
+                details = event_wrapper.get('event_details')
+                if details:
+                    trade_id = details.get('trade_id')
+                    is_relevant = details.get('is_relevant_for_target_year', False)
+                    if trade_id:
+                        trade_id_to_relevant[trade_id] = is_relevant
+                    # Также добавляем original_trade_ids для агрегированных сделок
+                    if details.get('is_aggregated') and 'original_trade_ids' in details:
+                        for orig_id in details['original_trade_ids']:
+                            # Для оригинальных ID используем релевантность агрегированной сделки
+                            trade_id_to_relevant[orig_id] = is_relevant
+
+    # Шаг 1: Создаем уникальный цвет для каждой пары (покупка, продажа)
+    # НО только если ОБЕ сделки релевантны для целевого года
+    for isin_key, event_list_for_isin in final_instrument_event_history.items():
+        for event_wrapper in event_list_for_isin:
+            if event_wrapper.get('display_type') == 'trade':
+                details = event_wrapper.get('event_details')
+                if details and details.get('operation', '').lower() == 'sell':
+                    sell_id = details.get('trade_id')
+                    sell_is_relevant = details.get('is_relevant_for_target_year', False)
+
+                    # Пропускаем продажи, не относящиеся к целевому году
+                    if not sell_is_relevant:
+                        continue
+
+                    used_buy_ids = details.get('used_buy_ids', [])
+                    # Убираем дубликаты buy_id, сохраняя порядок
+                    seen_buy_ids = set()
+                    unique_buy_ids = []
+                    for buy_id in used_buy_ids:
+                        if buy_id not in seen_buy_ids:
+                            seen_buy_ids.add(buy_id)
+                            unique_buy_ids.append(buy_id)
+
+                    for buy_id in unique_buy_ids:
+                        # Проверяем, релевантна ли покупка
+                        buy_is_relevant = trade_id_to_relevant.get(buy_id, False)
+
+                        # Создаем пару только если ОБЕ сделки релевантны
+                        if buy_is_relevant and sell_is_relevant:
+                            pair_key = (buy_id, sell_id)
+                            if pair_key not in pair_to_color:
+                                pair_to_color[pair_key] = available_colors[color_index % len(available_colors)]
+                                color_index += 1
+
+    # Шаг 2: Присваиваем цвета покупкам на основе их связей с продажами
+    for isin_key, event_list_for_isin in final_instrument_event_history.items():
+        for event_wrapper in event_list_for_isin:
+            if event_wrapper.get('display_type') == 'trade':
+                details = event_wrapper.get('event_details')
+                if details and details.get('operation', '').lower() == 'buy':
+                    # Для агрегированных покупок используем оригинальные ID
+                    if details.get('is_aggregated') and 'original_trade_ids' in details:
+                        original_ids = details['original_trade_ids']
+                        colors = []
+                        for orig_id in original_ids:
+                            # Ищем все пары (orig_id, *)
+                            for (buy_id, sell_id), color in pair_to_color.items():
+                                if buy_id == orig_id and color not in colors:
+                                    colors.append(color)
+                        if colors:
+                            trade_id_to_colors[details.get('trade_id')] = colors
+                    else:
+                        # Обычная покупка
+                        buy_id = details.get('trade_id')
+                        colors = []
+                        # Ищем все пары (buy_id, *)
+                        for (pair_buy_id, sell_id), color in pair_to_color.items():
+                            if pair_buy_id == buy_id:
+                                colors.append(color)
+                        if colors:
+                            trade_id_to_colors[buy_id] = colors
+
+    # Шаг 3: Присваиваем цвета продажам на основе их связей с покупками
+    for isin_key, event_list_for_isin in final_instrument_event_history.items():
+        for event_wrapper in event_list_for_isin:
+            if event_wrapper.get('display_type') == 'trade':
+                details = event_wrapper.get('event_details')
+                if details and details.get('operation', '').lower() == 'sell':
+                    sell_id = details.get('trade_id')
+                    colors = []
+                    # Ищем все пары (*, sell_id)
+                    for (buy_id, pair_sell_id), color in pair_to_color.items():
+                        if pair_sell_id == sell_id:
+                            colors.append(color)
+                    if colors:
+                        trade_id_to_colors[sell_id] = colors
+
+    # Присваиваем цвета сделкам
+    for isin_key, event_list_for_isin in final_instrument_event_history.items():
+        for event_wrapper in event_list_for_isin:
+            if event_wrapper.get('display_type') == 'trade':
+                details = event_wrapper.get('event_details')
+                if details:
+                    trade_id = details.get('trade_id')
+                    details['link_colors'] = trade_id_to_colors.get(trade_id, [])
+
+    # Присваиваем цвета опционам (те же, что у связанной поставки)
+    for isin_key, trades_list in full_instrument_trade_history_for_fifo.items():
+        for trade_dict in trades_list:
+            if trade_dict.get('is_option_delivery') and trade_dict.get('related_option_purchase'):
+                # Получаем цвета поставки
+                delivery_colors = trade_dict.get('link_colors', [])
+                # Присваиваем те же цвета опциону
+                option_data = trade_dict['related_option_purchase']
+                option_data['link_colors'] = delivery_colors
+
     # Используем files_for_sales_scan_target_year_only для расчета комиссий за целевой год
     dividend_commissions_details, other_commissions_details, total_other_commissions_rub_val = _calculate_additional_commissions(request, user, target_report_year, files_for_sales_scan_target_year_only, _processing_had_error_local_flag)
 
@@ -1518,13 +1849,31 @@ def process_and_get_trade_data(request, user, target_report_year):
     if _processing_had_error_local_flag[0]: 
         pass
     
+    # Добавляем опционы в final_instrument_event_history как отдельные группы
+    # Они будут отображаться вместе с акциями, но перед ними (благодаря сортировке)
+    for _, opt_data in option_purchases_by_delivery.items():
+        opt_name = opt_data.get('instr_nm', 'Неизвестный опцион')
+        # Используем название опциона как ключ группировки
+        grouping_key = f"OPTION_{opt_name}"
+
+        # Формируем структуру, похожую на trade events
+        option_event = {
+            'display_type': 'option',
+            'datetime_obj': opt_data.get('datetime_obj'),
+            'event_details': opt_data
+        }
+
+        if grouping_key not in final_instrument_event_history:
+            final_instrument_event_history[grouping_key] = []
+        final_instrument_event_history[grouping_key].append(option_event)
+
     return (
-        final_instrument_event_history, 
-        all_dividend_events_final_list, 
-        total_dividends_rub_for_year, 
-        total_sales_profit_rub_for_year, 
-        _processing_had_error_local_flag[0], 
-        dividend_commissions_details, 
-        other_commissions_details, 
+        final_instrument_event_history,
+        all_dividend_events_final_list,
+        total_dividends_rub_for_year,
+        total_sales_profit_rub_for_year,
+        _processing_had_error_local_flag[0],
+        dividend_commissions_details,
+        other_commissions_details,
         total_other_commissions_rub_val
     )
