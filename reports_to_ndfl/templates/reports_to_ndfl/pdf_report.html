@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Отчет НДФЛ за {{ target_report_year_for_title }} год</title>
+    <style>
+        @page {
+            size: A4 landscape;
+            margin: 1cm;
+        }
+        body {
+            font-family: DejaVuSans;
+            font-size: 8pt;
+            line-height: 1.5;
+            color: #333;
+            margin: 0;
+            padding: 10px;
+        }
+        h1 {
+            font-family: DejaVuSans;
+            font-size: 14pt;
+            color: #333;
+            margin-bottom: 10px;
+            margin-top: 0;
+        }
+        h2 {
+            font-family: DejaVuSans;
+            font-size: 11pt;
+            color: #333;
+            margin-top: 15px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        h3 {
+            font-family: DejaVuSans;
+            font-size: 10pt;
+            color: #555;
+            margin-top: 10px;
+            margin-bottom: 5px;
+        }
+        h4 {
+            font-family: DejaVuSans;
+            font-size: 9pt;
+            color: #555;
+            margin-top: 10px;
+            margin-bottom: 5px;
+        }
+        p, td, th, span, div {
+            font-family: DejaVuSans;
+        }
+        strong, b {
+            font-family: DejaVuSans;
+            font-weight: bold;
+        }
+
+        .header-info {
+            text-align: right;
+            font-size: 7pt;
+            color: #777;
+            margin-bottom: 10px;
+        }
+
+        .summary-box {
+            background-color: #f4f7f6;
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+        }
+        .summary-box p { margin: 3px 0; font-size: 9pt; }
+        .summary-box strong { color: #333; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+            margin-bottom: 12px;
+            font-size: 7pt;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 4px 5px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background-color: #dbeafe;
+            color: #495057;
+            font-weight: bold;
+        }
+        td.numeric { text-align: right; }
+
+        .conversion-row td { background-color: #e6f7ff; font-style: italic; }
+        .non-relevant-row td { color: #888; }
+        .option-delivery-row { border-left: 3px solid #f59e0b; }
+
+        .section {
+            margin-bottom: 15px;
+        }
+
+        .note {
+            font-size: 7pt;
+            color: #666;
+            font-style: italic;
+            margin-top: 3px;
+            margin-bottom: 5px;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 15px;
+            color: #777;
+            background-color: #f8f9fa;
+            border: 1px solid #ced4da;
+        }
+
+        .instrument-block {
+            margin-bottom: 10px;
+            border: 1px solid #c7d2fe;
+            padding: 8px;
+            background-color: #ffffff;
+        }
+        .instrument-block h3 {
+            margin-top: 0;
+            margin-bottom: 5px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 3px;
+        }
+        .operations-table { table-layout: auto; width: 100%; }
+        .id-cell {
+            font-size: 5pt;
+            line-height: 1.15;
+            word-wrap: break-word;
+            word-break: break-all;
+            white-space: normal;
+        }
+        .compact-cell { white-space: nowrap; font-size: 6.5pt; }
+        .price-cell { width: auto; }
+        .op-cell { width: 8%; white-space: nowrap; }
+        .date-cell { white-space: nowrap; }
+        .quantity-cell {
+            white-space: nowrap;
+        }
+        .link-indicators {
+            display: inline-block;
+            margin-right: 4px;
+        }
+        .link-indicator {
+            font-size: 8pt;
+            line-height: 1;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <div class="header-info">
+        Дата формирования: {{ generation_date }}
+    </div>
+
+    <h1>Отчет по расчету НДФЛ за {{ target_report_year_for_title }} год</h1>
+
+    <div class="summary-box">
+        <p><strong>Финансовый результат по сделкам (код дохода 1530):</strong> {{ total_sales_profit_rub|floatformat:2 }} RUB</p>
+        {% if total_dividends_rub %}
+        <p><strong>Сумма дивидендов до налогов (код дохода 1010):</strong> {{ total_dividends_rub|floatformat:2 }} RUB</p>
+        {% endif %}
+        {% if total_other_income_rub %}
+        <p><strong>Прочие доходы:</strong> {{ total_other_income_rub|floatformat:2 }} RUB</p>
+        {% endif %}
+        {% if total_other_commissions_rub %}
+        <p><strong>Прочие комиссии:</strong> {{ total_other_commissions_rub|floatformat:2 }} RUB</p>
+        {% endif %}
+    </div>
+
+    {% if instrument_event_history %}
+    <div class="section">
+        <h2>История операций по инструментам с продажами в {{ target_report_year_for_title }} году</h2>
+        <p class="note">Серым цветом выделены операции, не связанные напрямую с продажами в целевом году</p>
+
+        {% for grouping_isin, event_list in instrument_event_history.items %}
+            <div class="instrument-block">
+                {% with first_event_wrapper=event_list.0 %}{% with first_event=first_event_wrapper.event_details %}
+                    {% if first_event_wrapper.display_type == 'conversion_info' %}
+                        <h3>{{ first_event.new_ticker|default:first_event.new_isin }} (результат конвертации)</h3>
+                    {% elif first_event_wrapper.display_type == 'option' %}
+                        <h3>Опцион: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
+                    {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
+                        <h3>{{ first_event.instr_nm|default_if_none:"N/A" }} ({{ grouping_isin }})</h3>
+                    {% else %}
+                        <h3>{{ grouping_isin }}</h3>
+                    {% endif %}
+                {% endwith %}{% endwith %}
+
+                <table class="operations-table">
+                    <thead>
+                        <tr>
+                            <th class="date-cell">Дата</th>
+                            <th>ID</th>
+                            <th class="op-cell">Операция</th>
+                            <th>Инструмент</th>
+                            <th class="compact-cell price-cell">Цена</th>
+                            <th class="compact-cell">Кол-во</th>
+                            <th>Сумма</th>
+                            <th>Комиссия</th>
+                            <th>FIFO, RUB</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
+                            {% if event_wrapper.display_type == 'trade' %}
+                                <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}">
+                                    <td class="date-cell">{{ event.date|default:"-" }}</td>
+                                    <td class="id-cell">{{ event.trade_id|default:"-" }}</td>
+                                    <td class="op-cell">{% if event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
+                                    <td>{{ event.instr_nm|default:event.isin }}</td>
+                                    <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
+                                    <td class="numeric quantity-cell compact-cell">
+                                        {% if event.link_colors and event.is_relevant_for_target_year %}
+                                            <span class="link-indicators">
+                                                {% for color in event.link_colors %}
+                                                    <span class="link-indicator" style="color: {{ color }};">■</span>
+                                                {% endfor %}
+                                            </span>
+                                        {% endif %}
+                                        {{ event.q|default:"-" }}
+                                    </td>
+                                    <td class="numeric">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
+                                    <td class="numeric">{{ event.commission|default:"-" }}</td>
+                                    <td class="numeric"><strong>{{ event.fifo_cost_rub_str|default:"-" }}</strong></td>
+                                </tr>
+                            {% elif event_wrapper.display_type == 'conversion_info' %}
+                                <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td>{{ event.corp_action_id|default:"N/A" }}</td>
+                                    <td colspan="2"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker|default:event.old_isin }} -&gt; {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker|default:event.new_isin }}</td>
+                                    <td colspan="3">{{ event.ratio_comment|truncatechars:60 }}</td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                </tr>
+                            {% elif event_wrapper.display_type == 'initial_holding' %}
+                                <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td>Нач.</td>
+                                    <td class="op-cell">Зачисл.</td>
+                                    <td>{{ event.instr_nm|default:event.isin }}</td>
+                                    <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
+                                    <td class="numeric quantity-cell compact-cell">
+                                        {% if event.link_colors %}
+                                            <span class="link-indicators">
+                                                {% for color in event.link_colors %}
+                                                    <span class="link-indicator" style="color: {{ color }};">■</span>
+                                                {% endfor %}
+                                            </span>
+                                        {% endif %}
+                                        {{ event.q|default:"-" }}
+                                    </td>
+                                    <td class="numeric">{{ event.total_cost_rub_str|default:"-" }} RUB</td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                </tr>
+                            {% elif event_wrapper.display_type == 'option' %}
+                                <tr class="option-delivery-row">
+                                    <td class="date-cell">{{ event.date|default:"-" }}</td>
+                                    <td class="id-cell">{{ event.trade_id|default:"-" }}</td>
+                                    <td class="op-cell"><strong>Опцион</strong></td>
+                                    <td>{{ event.instr_nm|default:"-" }}</td>
+                                    <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
+                                    <td class="numeric quantity-cell compact-cell">
+                                        {% if event.link_colors %}
+                                            <span class="link-indicators">
+                                                {% for color in event.link_colors %}
+                                                    <span class="link-indicator" style="color: {{ color }};">■</span>
+                                                {% endfor %}
+                                            </span>
+                                        {% endif %}
+                                        {{ event.q|default:"-" }}
+                                    </td>
+                                    <td class="numeric">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
+                                    <td class="numeric">{{ event.commission|default:"-" }}</td>
+                                    <td style="font-style: italic; color: #666;">В поставке</td>
+                                </tr>
+                            {% endif %}
+                        {% endwith %}{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% empty %}
+            <div class="no-data">Нет данных по операциям с инструментами.</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if dividend_history %}
+    <div class="section">
+        <h2>История дивидендов за {{ target_report_year_for_title }} год (код дохода 1010)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Дата выплаты</th>
+                    <th>Инструмент</th>
+                    <th>Сумма дивиденда</th>
+                    <th>Удержанный налог</th>
+                    <th>Валюта</th>
+                    <th>Курс ЦБ</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for div_event in dividend_history %}
+                    <tr>
+                        <td>{{ div_event.date|date:"Y-m-d" }}</td>
+                        <td>{{ div_event.ticker|default:"N/A" }} ({{ div_event.instrument_name|default:'' }})</td>
+                        <td class="numeric">{{ div_event.amount|floatformat:2 }}</td>
+                        <td class="numeric">{{ div_event.tax_amount|floatformat:2 }}</td>
+                        <td>{{ div_event.currency|default:"N/A" }}</td>
+                        <td class="numeric">{{ div_event.cbr_rate_str|default:"-" }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if other_income_history %}
+    <div class="section">
+        <h2>Прочие доходы и расходы за {{ target_report_year_for_title }} год</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Дата</th>
+                    <th>Описание</th>
+                    <th>Сумма</th>
+                    <th>Валюта</th>
+                    <th>Курс ЦБ</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for income in other_income_history %}
+                    <tr>
+                        <td>{{ income.date|date:"Y-m-d" }}</td>
+                        <td>{{ income.description|default:"-" }}</td>
+                        <td class="numeric">{{ income.amount|floatformat:2 }}</td>
+                        <td>{{ income.currency|default:"N/A" }}</td>
+                        <td class="numeric">{{ income.cbr_rate_str|default:"-" }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if dividend_commissions or other_commissions %}
+    <div class="section">
+        <h2>Детализация прочих брокерских комиссий за {{ target_report_year_for_title }} год</h2>
+
+        {% if dividend_commissions %}
+        <h4>Комиссии, связанные с дивидендами:</h4>
+        <table>
+            <thead>
+                <tr>
+                    <th>Категория (Тикер)</th>
+                    <th>Суммы в валютах</th>
+                    <th>Общая сумма (RUB)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for category_name, category_data in dividend_commissions.items %}
+                    <tr>
+                        <td>{{ category_name }}</td>
+                        <td>
+                            {% for currency_code, total_amount in category_data.amount_by_currency.items %}
+                                {{ total_amount|floatformat:2 }} {{ currency_code }}{% if not forloop.last %}, {% endif %}
+                            {% empty %}
+                                N/A
+                            {% endfor %}
+                        </td>
+                        <td class="numeric">{{ category_data.amount_rub|floatformat:2 }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if other_commissions %}
+        <h4>Прочие комиссии:</h4>
+        {% if total_other_commissions_rub %}
+        <p style="font-size: 8pt;"><strong>Общая сумма: {{ total_other_commissions_rub|floatformat:2 }} RUB</strong></p>
+        {% endif %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Категория</th>
+                    <th>Суммы в валютах</th>
+                    <th>Общая сумма (RUB)</th>
+                    <th>Описание</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for category, data in other_commissions.items %}
+                    <tr>
+                        <td>{{ category }}</td>
+                        <td>
+                            {% for currency_code, amount_val in data.currencies.items %}
+                                {% if amount_val > 0 %}
+                                    {{ amount_val|floatformat:2 }} {{ currency_code }}{% if not forloop.last %}, {% endif %}
+                                {% endif %}
+                            {% empty %}
+                                Нет данных
+                            {% endfor %}
+                        </td>
+                        <td class="numeric"><strong>{{ data.total_rub|floatformat:2 }}</strong></td>
+                        <td>
+                            {% for event in data.raw_events %}
+                                {{ event.date|date:"Y-m-d" }}: {{ event.description|default:"-" }}{% if not forloop.last %}; {% endif %}
+                            {% endfor %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+    {% endif %}
+
+</body>
+</html>
