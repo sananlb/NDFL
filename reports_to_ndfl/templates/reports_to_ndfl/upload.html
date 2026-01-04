@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Загрузка XML отчетов</title>
+    <title>Загрузка отчетов брокера</title>
     <style>
         body { font-family: sans-serif; margin: 20px; line-height: 1.6; background-color: #f4f7f6; }
         h1, h2, h3, h4, h5 { color: #333; }
@@ -27,7 +27,7 @@
         .form-section h3 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; }
 
         label { display: block; margin-bottom: 5px; font-weight: bold; color: #555}
-        input[type="number"], input[type="file"] {
+        input[type="number"], input[type="file"], select {
             padding: 10px;
             border: 1px solid #ccc;
             border-radius: 4px;
@@ -46,6 +46,12 @@
             transition: background-color 0.3s ease;
         }
         button[type="submit"]:hover { background-color: #0056b3; }
+        .secondary-button {
+            background-color: #6c757d;
+        }
+        .secondary-button:hover {
+            background-color: #5a6268;
+        }
 
         table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; table-layout: auto; background-color: #fff; }
         th, td { border: 1px solid #ddd; padding: 10px; text-align: left; word-wrap: break-word; }
@@ -168,7 +174,7 @@
         {% endif %}
     </div>
 
-    <h1>Загрузка и анализ XML отчетов брокера</h1>
+    <h1>Загрузка и анализ отчетов брокера</h1>
 
     {% if messages %}
         <ul class="messages">
@@ -185,8 +191,15 @@
                 <div class="form-section">
                     <h3>1. Загрузка отчетов брокера</h3>
                     <div>
-                        <label for="xml_file_input">Файл(ы) XML для загрузки:</label>
-                        <input type="file" name="xml_file" id="xml_file_input" multiple>
+                        <label for="broker_type_select">Брокер:</label>
+                        <select name="broker_type" id="broker_type_select">
+                            <option value="ffg" {% if selected_broker_type == 'ffg' %}selected{% endif %}>Freedom Finance Global (.xml)</option>
+                            <option value="ib" {% if selected_broker_type == 'ib' %}selected{% endif %}>Interactive Brokers (.csv)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="report_file_input">Файл(ы) отчета для загрузки:</label>
+                        <input type="file" name="report_file" id="report_file_input" multiple>
                     </div>
                     <div id="selected_files" style="margin-top:10px; margin-bottom:15px;"></div>
                     <button type="submit" name="action" value="upload_reports">Загрузить выбранные отчеты</button>
@@ -205,12 +218,16 @@
             {% if user.is_authenticated %}
             <div class="previously-uploaded-section">
                 <h4>Ранее загруженные вами отчеты:</h4>
+                <form method="post" style="margin: 0 0 10px 0;" onsubmit="return confirm('Удалить все отчеты?');">
+                    {% csrf_token %}
+                    <button type="submit" name="action" value="delete_all_reports" class="secondary-button">Удалить все отчеты</button>
+                </form>
                 {% if previously_uploaded_files %}
                     <ul>
                         {% for file_entry in previously_uploaded_files %}
                         <li>
                             <div class="file-info">
-                                <span>{{ file_entry.original_filename }} (Отчет за {{ file_entry.year }} год)</span>
+                                <span>{{ file_entry.original_filename }} ({{ file_entry.get_broker_type_display }} — {{ file_entry.year }} год)</span>
                                 <span class="date">Загружен: {{ file_entry.uploaded_at|date:"d.m.Y H:i" }}</span>
                             </div>
                             <form method="post" action="{% url 'delete_xml_file' file_entry.id %}" style="margin: 0;" onsubmit="return confirm('Вы уверены, что хотите удалить файл {{ file_entry.original_filename }}?');">
@@ -353,6 +370,35 @@
          <div class="no-data-message">Нет данных для отображения. Возможно, не найдено инструментов с продажами или дивидендов в целевом году ({{ target_report_year_for_title|default:"указанный" }}).</div>
     {% endif %}
 
+    {% if other_income_history %}
+        <div class="content-block">
+            <h2>Прочие доходы и расходы за {{ target_report_year_for_title|default:"указанный" }} год</h2>
+            <p><small>Общая сумма: {{ total_other_income_rub|floatformat:2 }} RUB</small></p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Дата</th>
+                        <th>Описание</th>
+                        <th class="numeric">Сумма</th>
+                        <th>Валюта</th>
+                        <th class="numeric">Курс ЦБ на дату</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for income in other_income_history %}
+                        <tr>
+                            <td>{{ income.date|date:"Y-m-d" }}</td>
+                            <td>{{ income.description|default:"-" }}</td>
+                            <td class="numeric">{{ income.amount|floatformat:2 }}</td>
+                            <td>{{ income.currency|default:"N/A" }}</td>
+                            <td class="numeric">{{ income.cbr_rate_str|default:"-" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+
     {# START: Block for Additional Commissions #}
     {% if processing_has_run_for_current_display %}
         <div class="content-block">
@@ -436,6 +482,7 @@
                             <th>Категория</th>
                             <th>Суммы в валютах</th>
                             <th class="numeric">Общая сумма (RUB)</th>
+                            <th>Описание</th>
                             <th>Детализация</th>
                         </tr>
                     </thead>
@@ -454,11 +501,26 @@
                                 {% endfor %}
                             </td>
                             <td class="numeric" style="font-weight: bold;">{{ data.total_rub|floatformat:2 }}</td>
-                           
                             <td>
                                 <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
                                 {% for event in data.raw_events %}
-                                    <li>{{ event.date|date:"Y-m-d" }}: {{event.amount|floatformat:2}} {{event.currency}} ({{event.amount_rub|floatformat:2}} RUB)</li>
+                                    <li>
+                                        {{ event.date|date:"Y-m-d" }}:
+                                        {% if event.description %}
+                                            {{ event.description }}
+                                        {% elif event.source %}
+                                            {{ event.source }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </li>
+                                {% endfor %}
+                                </ul>
+                            </td>
+                            <td>
+                                <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
+                                {% for event in data.raw_events %}
+                                    <li>{{event.amount|floatformat:2}} {{event.currency}} ({{event.amount_rub|floatformat:2}} RUB)</li>
                                 {% endfor %}
                                 </ul>
                             </td>
@@ -466,7 +528,7 @@
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="3" style="text-align: center;">Прочие нераспределенные комиссии не найдены.</td>
+                            <td colspan="5" style="text-align: center;">Прочие нераспределенные комиссии не найдены.</td>
                         </tr>
                     {% endfor %}
                     </tbody>
@@ -487,8 +549,19 @@
         <p style="margin-top:20px; color: #721c24; font-weight:bold; background-color: #f8d7da; border:1px solid #f5c6cb; padding:10px; border-radius:4px;"><b>Внимание:</b> Во время обработки файлов произошли ошибки. Отображаемые данные могут быть неполными. Пожалуйста, проверьте сообщения выше.</p>
     {% endif %}
 
+    {% if processing_has_run_for_current_display and instrument_event_history or dividend_history %}
+        <div style="margin-top: 30px; margin-bottom: 30px; text-align: center;">
+            <a href="{% url 'download_pdf' %}?year={{ target_report_year_for_title }}"
+               style="display: inline-block; padding: 12px 25px; background-color: #007bff; color: white; text-decoration: none; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; transition: background-color 0.3s ease;"
+               onmouseover="this.style.backgroundColor='#0056b3'"
+               onmouseout="this.style.backgroundColor='#007bff'">
+                Скачать PDF отчет
+            </a>
+        </div>
+    {% endif %}
+
     <script>
-        document.getElementById('xml_file_input').addEventListener('change', function(event) {
+        document.getElementById('report_file_input').addEventListener('change', function(event) {
             const fileList = event.target.files;
             const selectedFilesDiv = document.getElementById('selected_files');
             selectedFilesDiv.innerHTML = '';

@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python manage.py:*)",
+      "Bash(python3 manage.py runserver:*)",
+      "Bash(ls:*)",
+      "Bash(source:*)",
+      "Bash(git pull:*)",
+      "Bash(git add:*)",
+      "Bash(git config:*)",
+      "Bash(git remote get-url:*)",
+      "Bash(git stash:*)",
+      "Bash(git fetch:*)",
+      "Bash(git commit:*)",
+      "Bash(rm:*)",
+      "Bash(mkdir:*)",
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(git rm:*)",
+      "Bash(cp:*)",
+      "Bash(git checkout:*)",
+      "Bash(git reset:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(python3 manage.py check:*)",
+      "Bash(./venv/Scripts/python.exe manage.py check)",
+      "Bash(./venv/Scripts/python.exe manage.py showmigrations:*)",
+      "Bash(mv:*)",
+      "Bash(grep:*)"
+    ],
+    "deny": []
+  }
+}

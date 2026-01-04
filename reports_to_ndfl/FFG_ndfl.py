@@ -23,6 +23,14 @@ PARSING_ERROR_MARKER = "CA_PARSING_ERROR"
 NOT_A_RELEVANT_CONVERSION_MARKER = "CA_NOT_RELEVANT_CONVERSION"
 _processing_had_error = [False] # Общий флаг ошибки для всего процесса
 
+
+def _get_report_file_field(file_instance):
+    if hasattr(file_instance, 'xml_file') and file_instance.xml_file:
+        return file_instance.xml_file
+    if hasattr(file_instance, 'report_file') and file_instance.report_file:
+        return file_instance.report_file
+    return None
+
 def _get_exchange_rate_for_date(request, currency_obj, target_date_obj, rate_purpose_message=""):
     if not isinstance(target_date_obj, date):
         return None, False, None
@@ -82,7 +90,10 @@ def _extract_ca_nodes_from_file(file_instance):
     ca_nodes_in_file = []
     corp_action_tags = ['date', 'type', 'type_id', 'corporate_action_id', 'amount', 'asset_type', 'ticker', 'isin', 'currency', 'ex_date', 'comment']
     try:
-        with file_instance.xml_file.open('rb') as xml_file_content_stream:
+        file_field = _get_report_file_field(file_instance)
+        if not file_field:
+            return ca_nodes_in_file
+        with file_field.open('rb') as xml_file_content_stream:
             content_bytes = xml_file_content_stream.read()
             xml_string_loop = ""
             try: xml_string_loop = content_bytes.decode('utf-8')
@@ -595,7 +606,10 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
 
     for file_instance in target_year_files:
         try:
-            with file_instance.xml_file.open('rb') as xml_file_content_stream:
+            file_field = _get_report_file_field(file_instance)
+            if not file_field:
+                continue
+            with file_field.open('rb') as xml_file_content_stream:
                 content_bytes = xml_file_content_stream.read()
                 xml_string = ""
                 try:
@@ -842,7 +856,7 @@ def _calculate_additional_commissions(request, user, target_report_year, target_
     return dividend_commissions, other_commissions_details, total_other_commissions_rub
 
 
-def process_and_get_trade_data(request, user, target_report_year):
+def process_and_get_trade_data(request, user, target_report_year, files_queryset=None):
     _processing_had_error_local_flag = [False] 
 
     full_instrument_trade_history_for_fifo = defaultdict(list)
@@ -852,7 +866,10 @@ def process_and_get_trade_data(request, user, target_report_year):
     total_sales_profit_rub_for_year = Decimal(0) 
 
     # ИЗМЕНЕНО: Загружаем ВСЕ файлы пользователя для полной истории, включая покрытие шортов будущими покупками
-    relevant_files_for_history = UploadedXMLFile.objects.filter(user=user).order_by('year', 'uploaded_at')
+    if files_queryset is None:
+        relevant_files_for_history = UploadedXMLFile.objects.filter(user=user).order_by('year', 'uploaded_at')
+    else:
+        relevant_files_for_history = files_queryset.order_by('year', 'uploaded_at')
     if not relevant_files_for_history.exists():
         messages.info(request, f"У вас нет загруженных файлов для анализа истории.") # Сообщение изменено
         return {}, [], Decimal(0), Decimal(0), _processing_had_error_local_flag[0], defaultdict(lambda: {'amount_by_currency': defaultdict(Decimal),'amount_rub': Decimal(0), 'details': []}), defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []}), Decimal(0)
@@ -868,15 +885,17 @@ def process_and_get_trade_data(request, user, target_report_year):
     if relevant_files_for_history: # earliest_report_start_datetime определяется из самого первого файла по дате
         first_file_instance = relevant_files_for_history.first() 
         try:
-            with first_file_instance.xml_file.open('rb') as xml_file_content_stream:
-                content_bytes = xml_file_content_stream.read(); xml_string_temp = ""
-                try: xml_string_temp = content_bytes.decode('utf-8')
-                except UnicodeDecodeError: xml_string_temp = content_bytes.decode('windows-1251', errors='replace')
-                if xml_string_temp:
-                    root_temp = ET.fromstring(xml_string_temp)
-                    date_start_el_temp = root_temp.find('.//date_start')
-                    if date_start_el_temp is not None and date_start_el_temp.text:
-                        earliest_report_start_datetime = datetime.strptime(date_start_el_temp.text.strip(), '%Y-%m-%d %H:%M:%S')
+            file_field = _get_report_file_field(first_file_instance)
+            if file_field:
+                with file_field.open('rb') as xml_file_content_stream:
+                    content_bytes = xml_file_content_stream.read(); xml_string_temp = ""
+                    try: xml_string_temp = content_bytes.decode('utf-8')
+                    except UnicodeDecodeError: xml_string_temp = content_bytes.decode('windows-1251', errors='replace')
+                    if xml_string_temp:
+                        root_temp = ET.fromstring(xml_string_temp)
+                        date_start_el_temp = root_temp.find('.//date_start')
+                        if date_start_el_temp is not None and date_start_el_temp.text:
+                            earliest_report_start_datetime = datetime.strptime(date_start_el_temp.text.strip(), '%Y-%m-%d %H:%M:%S')
         except Exception as e_early_date:
             _processing_had_error_local_flag[0] = True 
 
@@ -888,7 +907,10 @@ def process_and_get_trade_data(request, user, target_report_year):
         is_target_year_file_for_dividends = (file_instance.year == target_report_year) 
 
         try:
-            with file_instance.xml_file.open('rb') as xml_file_content_stream:
+            file_field = _get_report_file_field(file_instance)
+            if not file_field:
+                continue
+            with file_field.open('rb') as xml_file_content_stream:
                 content_bytes = xml_file_content_stream.read(); xml_string_loop = ""
                 try: xml_string_loop = content_bytes.decode('utf-8')
                 except UnicodeDecodeError: xml_string_loop = content_bytes.decode('windows-1251', errors='replace')
@@ -1484,12 +1506,18 @@ def process_and_get_trade_data(request, user, target_report_year):
 
     instruments_with_sales_in_target_year = set()
     # Сканируем продажи ТОЛЬКО в файлах целевого года для определения, чью историю показывать.
-    files_for_sales_scan_target_year_only = UploadedXMLFile.objects.filter(user=user, year=target_report_year) 
+    if files_queryset is None:
+        files_for_sales_scan_target_year_only = UploadedXMLFile.objects.filter(user=user, year=target_report_year)
+    else:
+        files_for_sales_scan_target_year_only = files_queryset.filter(year=target_report_year)
 
     if files_for_sales_scan_target_year_only.exists():
         for file_instance_scan in files_for_sales_scan_target_year_only:
             try:
-                with file_instance_scan.xml_file.open('rb') as xml_file_content_stream:
+                file_field = _get_report_file_field(file_instance_scan)
+                if not file_field:
+                    continue
+                with file_field.open('rb') as xml_file_content_stream:
                     content_bytes = xml_file_content_stream.read(); xml_string_loop_scan = ""
                     try: xml_string_loop_scan = content_bytes.decode('utf-8')
                     except UnicodeDecodeError: xml_string_loop_scan = content_bytes.decode('windows-1251', errors='replace')
