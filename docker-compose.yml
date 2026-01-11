@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: ndfl_db
+    volumes:
+      - ndfl_postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${DB_NAME:-ndfl}
+      - POSTGRES_USER=${DB_USER:-ndfl_user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ndfl_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ndfl_network
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ndfl_web
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DJANGO_SETTINGS_MODULE=NDFL.settings
+    volumes:
+      - ./logs:/app/logs
+      - ndfl_media:/app/media
+      - ndfl_static:/app/staticfiles
+    ports:
+      - "8010:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ndfl_network
+
+volumes:
+  ndfl_postgres_data:
+  ndfl_media:
+  ndfl_static:
+
+networks:
+  ndfl_network:
+    driver: bridge
