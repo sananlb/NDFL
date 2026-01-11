@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1
 # Set work directory
 WORKDIR /app
 
-# Install system dependencies for WeasyPrint and PostgreSQL
+# Install system dependencies for PDF generation and PostgreSQL
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpangocairo-1.0-0 \
     libgdk-pixbuf-2.0-0 \
     libffi-dev \
+    libcairo2-dev \
+    pkg-config \
     shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 
