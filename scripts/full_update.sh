@@ -68,14 +68,20 @@ docker-compose build --no-cache
 echo -e "${GREEN}✓ Docker образы пересобраны${NC}"
 echo ""
 
-# Шаг 5: Очистка Docker build cache
-echo -e "${YELLOW}[5/8] 🧹 Очищаю Docker build cache...${NC}"
-CACHE_SIZE=$(docker builder prune -f 2>&1 | grep "Total:" | awk '{print $2}' || echo "0B")
+# Шаг 5: Полная очистка Docker (build cache + неиспользуемые volumes)
+echo -e "${YELLOW}[5/8] 🧹 Очищаю Docker (build cache + volumes)...${NC}"
+# Очистка build cache (с флагом -a удаляет всё, включая используемые слои)
+CACHE_OUTPUT=$(docker builder prune -af 2>&1 || true)
+CACHE_SIZE=$(echo "$CACHE_OUTPUT" | grep "Total:" | awk '{print $2}' || echo "0B")
 if [ "$CACHE_SIZE" != "0B" ] && [ -n "$CACHE_SIZE" ]; then
-    echo -e "${GREEN}✓ Очищено build cache: $CACHE_SIZE${NC}"
+    echo -e "${GREEN}  ✓ Очищено build cache: $CACHE_SIZE${NC}"
 else
-    echo -e "${GREEN}✓ Build cache пуст или очищен${NC}"
+    echo -e "${GREEN}  ✓ Build cache пуст${NC}"
 fi
+# Очистка неиспользуемых volumes
+VOLUMES_OUTPUT=$(docker volume prune -f 2>&1 || true)
+VOLUMES_COUNT=$(echo "$VOLUMES_OUTPUT" | grep -c "Deleted Volumes:" || echo "0")
+echo -e "${GREEN}  ✓ Неиспользуемые volumes удалены${NC}"
 echo ""
 
 # Шаг 6: Запуск новых контейнеров
