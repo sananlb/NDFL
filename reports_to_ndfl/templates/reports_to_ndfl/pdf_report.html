@@ -175,6 +175,15 @@
         {% endif %}
     </div>
 
+    {% if user_comment %}
+    <div class="section" style="margin-bottom: 15px;">
+        <h2>Комментарий</h2>
+        <div style="background-color: #f8f9fa; border: 1px solid #ddd; padding: 10px; font-size: 9pt;">
+            {{ user_comment|linebreaksbr }}
+        </div>
+    </div>
+    {% endif %}
+
     {% if instrument_event_history %}
     <div class="section">
         <h2>История операций по инструментам с продажами в {{ target_report_year_for_title }} году</h2>
@@ -421,15 +430,6 @@
             </tbody>
         </table>
         {% endif %}
-    </div>
-    {% endif %}
-
-    {% if user_comment %}
-    <div class="section" style="margin-top: 20px;">
-        <h2>Комментарий</h2>
-        <div style="background-color: #f8f9fa; border: 1px solid #ddd; padding: 10px; font-size: 9pt;">
-            {{ user_comment|linebreaksbr }}
-        </div>
     </div>
     {% endif %}
 
