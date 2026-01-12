@@ -245,7 +245,8 @@
                     </div>
                     <div>
                         <label for="report_file_input">Файл(ы) отчета для загрузки:</label>
-                        <input type="file" name="report_file" id="report_file_input" multiple>
+                        <input type="file" name="report_file" id="report_file_input" multiple accept=".xml">
+                        <small id="file_format_hint" style="color: #666;">Формат: .xml</small>
                     </div>
                     <div id="selected_files" style="margin-top:10px; margin-bottom:15px;"></div>
                     <button type="submit" name="action" value="upload_reports">Загрузить выбранные отчеты</button>
@@ -634,21 +635,56 @@
     {% endif %}
 
     <script>
-        // Обработчик выбора файлов
+        // Обработчик выбора файлов с валидацией формата
         document.getElementById('report_file_input').addEventListener('change', function(event) {
             const fileList = event.target.files;
             const selectedFilesDiv = document.getElementById('selected_files');
+            const brokerSelect = document.getElementById('broker_type_select');
+            const expectedExt = brokerSelect.value === 'ib' ? '.csv' : '.xml';
+            const expectedExtUpper = expectedExt.toUpperCase();
+
             selectedFilesDiv.innerHTML = '';
+
             if (fileList.length > 0) {
-                const fileListTitle = document.createElement('h4');
-                fileListTitle.style.marginTop = '0px'; fileListTitle.style.marginBottom = '5px';
-                fileListTitle.textContent = 'Выбранные файлы:'; selectedFilesDiv.appendChild(fileListTitle);
-                const fileListElement = document.createElement('ul'); fileListElement.style.marginTop = '0px';
+                const invalidFiles = [];
+                const validFiles = [];
+
                 for (let i = 0; i < fileList.length; i++) {
-                    const listItem = document.createElement('li'); listItem.textContent = fileList[i].name;
-                    fileListElement.appendChild(listItem);
+                    const fileName = fileList[i].name;
+                    const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
+                    if (ext === expectedExt) {
+                        validFiles.push(fileName);
+                    } else {
+                        invalidFiles.push(fileName);
+                    }
                 }
-                selectedFilesDiv.appendChild(fileListElement);
+
+                if (invalidFiles.length > 0) {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.style.cssText = 'background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; padding: 10px; border-radius: 4px; margin-bottom: 10px;';
+                    errorDiv.innerHTML = '<strong>Неверный формат файла!</strong><br>Для выбранного брокера требуется формат <strong>' + expectedExtUpper + '</strong>.<br>Неподходящие файлы: ' + invalidFiles.join(', ');
+                    selectedFilesDiv.appendChild(errorDiv);
+
+                    // Очищаем input если есть невалидные файлы
+                    event.target.value = '';
+                    return;
+                }
+
+                if (validFiles.length > 0) {
+                    const fileListTitle = document.createElement('h4');
+                    fileListTitle.style.marginTop = '0px'; fileListTitle.style.marginBottom = '5px';
+                    fileListTitle.textContent = 'Выбранные файлы:';
+                    selectedFilesDiv.appendChild(fileListTitle);
+
+                    const fileListElement = document.createElement('ul');
+                    fileListElement.style.marginTop = '0px';
+                    for (let i = 0; i < validFiles.length; i++) {
+                        const listItem = document.createElement('li');
+                        listItem.textContent = validFiles[i];
+                        fileListElement.appendChild(listItem);
+                    }
+                    selectedFilesDiv.appendChild(fileListElement);
+                }
             }
         });
 
@@ -684,11 +720,35 @@
         // Вызываем при загрузке страницы для установки начального состояния
         document.addEventListener('DOMContentLoaded', updateProcessButton);
 
+        // Функция обновления допустимых форматов файлов
+        function updateFileAccept() {
+            const brokerSelect = document.getElementById('broker_type_select');
+            const fileInput = document.getElementById('report_file_input');
+            const formatHint = document.getElementById('file_format_hint');
+            const selectedFilesDiv = document.getElementById('selected_files');
+
+            if (brokerSelect.value === 'ib') {
+                fileInput.accept = '.csv';
+                formatHint.textContent = 'Формат: .csv';
+            } else {
+                fileInput.accept = '.xml';
+                formatHint.textContent = 'Формат: .xml';
+            }
+            // Очищаем выбранные файлы при смене брокера
+            fileInput.value = '';
+            selectedFilesDiv.innerHTML = '';
+        }
+
         // При смене брокера перезагружаем страницу для обновления списка годов
         document.getElementById('broker_type_select').addEventListener('change', function() {
             const selectedBroker = this.value;
             // Перезагружаем страницу с параметром для сохранения выбора брокера
             window.location.href = '?set_broker=' + selectedBroker;
+        });
+
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            updateFileAccept();
         });
 
         // Функция добавления комментария к URL при скачивании PDF

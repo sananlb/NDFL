@@ -247,6 +247,18 @@ def upload_xml_file(request):
             if not uploaded_files_from_form:
                 messages.error(request, 'Пожалуйста, выберите хотя бы один файл для загрузки.')
                 return redirect('upload_xml_file')
+
+            # Валидация формата файлов
+            expected_ext = '.csv' if broker_type == 'ib' else '.xml'
+            invalid_files = []
+            for f in uploaded_files_from_form:
+                if not f.name.lower().endswith(expected_ext):
+                    invalid_files.append(f.name)
+            if invalid_files:
+                ext_upper = expected_ext.upper()
+                messages.error(request, f'Неверный формат файла. Для выбранного брокера требуется формат {ext_upper}. Неподходящие файлы: {", ".join(invalid_files)}')
+                return redirect('upload_xml_file')
+
             _remove_reports_for_other_broker(user, broker_type)
             request.session['last_broker_type'] = broker_type
             parsing_error_in_upload_phase = False
