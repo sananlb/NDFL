@@ -168,8 +168,7 @@ def upload_xml_file(request):
     # Фильтруем отчёты по выбранному брокеру для получения доступных годов
     uploaded_reports_for_broker = BrokerReport.objects.filter(user=user, broker_type=selected_broker_type)
     available_years = sorted(
-        uploaded_reports_for_broker.values_list('year', flat=True).distinct(),
-        reverse=True
+        uploaded_reports_for_broker.values_list('year', flat=True).distinct()
     )
 
     # Получаем выбранный год из сессии и проверяем его валидность
@@ -453,11 +452,15 @@ def download_pdf(request):
     if report_with_account:
         account_number = report_with_account.account_number
 
+    # Получаем комментарий пользователя
+    user_comment = request.GET.get('comment', '').strip()
+
     # Контекст для PDF шаблона (БЕЗ информации о пользователе)
     context = {
         'target_report_year_for_title': target_year,
         'broker_name': broker_display_name,
         'account_number': account_number,
+        'user_comment': user_comment,
         'instrument_event_history': sorted_instrument_history,
         'dividend_history': dividend_events,
         'total_dividends_rub': total_dividends_rub,
