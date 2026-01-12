@@ -358,16 +358,18 @@ def upload_xml_file(request):
                 other_commissions_data = converted_other_commissions
 
 
-            # Сортируем так, чтобы опционы (OPTION_*) показывались первыми
-            sorted_instrument_history = {}
-            # Сначала добавляем опционы
+            # Разделяем историю операций по кодам дохода: 1530 (акции) и 1532 (опционы/ПФИ)
+            instrument_history_1530 = {}  # Ценные бумаги
+            instrument_history_1532 = {}  # ПФИ / опционы
+
             for key in sorted(instrument_event_history.keys()):
-                if key.startswith('OPTION_'):
-                    sorted_instrument_history[key] = instrument_event_history[key]
-            # Затем добавляем остальные инструменты
-            for key in sorted(instrument_event_history.keys()):
-                if not key.startswith('OPTION_'):
-                    sorted_instrument_history[key] = instrument_event_history[key]
+                events = instrument_event_history[key]
+                # Проверяем код дохода первой сделки в списке событий
+                is_option = key.startswith('OPTION_')
+                if is_option:
+                    instrument_history_1532[key] = events
+                else:
+                    instrument_history_1530[key] = events
 
             # Вычисляем сумму комиссий, связанных с дивидендами
             total_dividend_commissions_rub = sum(
@@ -375,7 +377,8 @@ def upload_xml_file(request):
                 Decimal(0)
             )
 
-            context['instrument_event_history'] = sorted_instrument_history
+            context['instrument_history_1530'] = instrument_history_1530
+            context['instrument_history_1532'] = instrument_history_1532
             context['dividend_history'] = dividend_events
             context['total_dividends_rub'] = total_dividends_rub
             context['total_sales_profit_rub'] = total_sales_profit
@@ -441,14 +444,17 @@ def download_pdf(request):
             }
         other_commissions_data = converted_other_commissions
 
-    # Сортируем инструменты
-    sorted_instrument_history = {}
+    # Разделяем историю операций по кодам дохода: 1530 (акции) и 1532 (опционы/ПФИ)
+    instrument_history_1530 = {}  # Ценные бумаги
+    instrument_history_1532 = {}  # ПФИ / опционы
+
     for key in sorted(instrument_event_history.keys()):
-        if key.startswith('OPTION_'):
-            sorted_instrument_history[key] = instrument_event_history[key]
-    for key in sorted(instrument_event_history.keys()):
-        if not key.startswith('OPTION_'):
-            sorted_instrument_history[key] = instrument_event_history[key]
+        events = instrument_event_history[key]
+        is_option = key.startswith('OPTION_')
+        if is_option:
+            instrument_history_1532[key] = events
+        else:
+            instrument_history_1530[key] = events
 
     # Регистрируем шрифты для кириллицы
     register_fonts()
@@ -479,7 +485,8 @@ def download_pdf(request):
         'broker_name': broker_display_name,
         'account_number': account_number,
         'user_comment': user_comment,
-        'instrument_event_history': sorted_instrument_history,
+        'instrument_history_1530': instrument_history_1530,
+        'instrument_history_1532': instrument_history_1532,
         'dividend_history': dividend_events,
         'total_dividends_rub': total_dividends_rub,
         'total_sales_profit_rub': total_sales_profit,

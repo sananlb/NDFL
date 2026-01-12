@@ -161,14 +161,10 @@
 
     <div class="summary-box">
         <p><strong>Финансовый результат по сделкам с ценными бумагами (код дохода 1530):</strong> {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</p>
-        {% if profit_by_income_code.1532 and profit_by_income_code.1532 != 0 %}
-        <p><strong>Финансовый результат по ПФИ / опционам (код дохода 1532):</strong> {{ profit_by_income_code.1532|floatformat:2 }} RUB</p>
-        {% endif %}
-        {% if total_dividends_rub %}
-        <p><strong>Сумма дивидендов до налогов (код дохода 1010):</strong> {{ total_dividends_rub|floatformat:2 }} RUB</p>
-        {% endif %}
-        <p><strong>Прочие доходы и расходы:</strong> {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB</p>
-        <p><strong>Прочие комиссии:</strong> {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</p>
+        <p><strong>Финансовый результат по сделкам с производными фин. инструментами (код дохода 1532):</strong> {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB</p>
+        <p><strong>Общая сумма дивидендов до налогов (код дохода 1010):</strong> {{ total_dividends_rub|floatformat:2|default:"0.00" }} RUB</p>
+        <p><strong>Прочие расходы и доходы:</strong> {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB</p>
+        <p><strong>Прочие расходы и доходы связанные с дивидендами:</strong> {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</p>
     </div>
 
     {% if user_comment %}
@@ -180,12 +176,13 @@
     </div>
     {% endif %}
 
-    {% if instrument_event_history %}
+    {% if instrument_history_1530 %}
     <div class="section">
-        <h2>История операций по инструментам с продажами в {{ target_report_year_for_title }} году</h2>
+        <h2>История операций по акциям и распискам за {{ target_report_year_for_title }} год (код дохода 1530)</h2>
+        <p style="font-size: 9pt; margin-bottom: 8px;"><strong>Финансовый результат по сделкам с ценными бумагами: {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</strong></p>
         <p class="note">Серым цветом выделены операции, не связанные напрямую с продажами в целевом году</p>
 
-        {% for grouping_isin, event_list in instrument_event_history.items %}
+        {% for grouping_isin, event_list in instrument_history_1530.items %}
             <div class="instrument-block">
                 {% with first_event_wrapper=event_list.0 %}{% with first_event=first_event_wrapper.event_details %}
                     {% if first_event_wrapper.display_type == 'conversion_info' %}
@@ -292,8 +289,123 @@
                     </tbody>
                 </table>
             </div>
-        {% empty %}
-            <div class="no-data">Нет данных по операциям с инструментами.</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if instrument_history_1532 %}
+    <div class="section">
+        <h2>История операций по производным фин. инструментам за {{ target_report_year_for_title }} год (код дохода 1532)</h2>
+        <p style="font-size: 9pt; margin-bottom: 8px;"><strong>Финансовый результат по сделкам с производными фин. инструментами: {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB</strong></p>
+        <p class="note">Серым цветом выделены операции, не связанные напрямую с продажами в целевом году</p>
+
+        {% for grouping_isin, event_list in instrument_history_1532.items %}
+            <div class="instrument-block">
+                {% with first_event_wrapper=event_list.0 %}{% with first_event=first_event_wrapper.event_details %}
+                    {% if first_event_wrapper.display_type == 'conversion_info' %}
+                        <h3>{{ first_event.new_ticker|default:first_event.new_isin }} (результат конвертации)</h3>
+                    {% elif first_event_wrapper.display_type == 'option' %}
+                        <h3>Опцион: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
+                    {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
+                        <h3>{{ first_event.instr_nm|default_if_none:"N/A" }} ({{ grouping_isin }})</h3>
+                    {% else %}
+                        <h3>{{ grouping_isin }}</h3>
+                    {% endif %}
+                {% endwith %}{% endwith %}
+
+                <table class="operations-table">
+                    <thead>
+                        <tr>
+                            <th class="date-cell">Дата</th>
+                            <th>ID</th>
+                            <th class="op-cell">Операция</th>
+                            <th>Инструмент</th>
+                            <th class="compact-cell price-cell">Цена</th>
+                            <th class="compact-cell">Кол-во</th>
+                            <th>Сумма</th>
+                            <th>Комиссия</th>
+                            <th>FIFO, RUB</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
+                            {% if event_wrapper.display_type == 'trade' %}
+                                <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}">
+                                    <td class="date-cell">{{ event.date|default:"-" }}</td>
+                                    <td class="id-cell">{{ event.trade_id|default:"-" }}</td>
+                                    <td class="op-cell">{% if event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
+                                    <td>{{ event.instr_nm|default:event.isin }}</td>
+                                    <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
+                                    <td class="numeric quantity-cell compact-cell">
+                                        {% if event.link_colors and event.is_relevant_for_target_year %}
+                                            <span class="link-indicators">
+                                                {% for color in event.link_colors %}
+                                                    <span class="link-indicator" style="color: {{ color }};">■</span>
+                                                {% endfor %}
+                                            </span>
+                                        {% endif %}
+                                        {{ event.q|default:"-" }}
+                                    </td>
+                                    <td class="numeric">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
+                                    <td class="numeric">{{ event.commission|default:"-" }}</td>
+                                    <td class="numeric"><strong>{{ event.fifo_cost_rub_str|default:"-" }}</strong></td>
+                                </tr>
+                            {% elif event_wrapper.display_type == 'conversion_info' %}
+                                <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td>{{ event.corp_action_id|default:"N/A" }}</td>
+                                    <td colspan="2"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker|default:event.old_isin }} -&gt; {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker|default:event.new_isin }}</td>
+                                    <td colspan="3">{{ event.ratio_comment|truncatechars:60 }}</td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                </tr>
+                            {% elif event_wrapper.display_type == 'initial_holding' %}
+                                <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td>Нач.</td>
+                                    <td class="op-cell">Зачисл.</td>
+                                    <td>{{ event.instr_nm|default:event.isin }}</td>
+                                    <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
+                                    <td class="numeric quantity-cell compact-cell">
+                                        {% if event.link_colors %}
+                                            <span class="link-indicators">
+                                                {% for color in event.link_colors %}
+                                                    <span class="link-indicator" style="color: {{ color }};">■</span>
+                                                {% endfor %}
+                                            </span>
+                                        {% endif %}
+                                        {{ event.q|default:"-" }}
+                                    </td>
+                                    <td class="numeric">{{ event.total_cost_rub_str|default:"-" }} RUB</td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                </tr>
+                            {% elif event_wrapper.display_type == 'option' %}
+                                <tr class="option-delivery-row">
+                                    <td class="date-cell">{{ event.date|default:"-" }}</td>
+                                    <td class="id-cell">{{ event.trade_id|default:"-" }}</td>
+                                    <td class="op-cell"><strong>Опцион</strong></td>
+                                    <td>{{ event.instr_nm|default:"-" }}</td>
+                                    <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
+                                    <td class="numeric quantity-cell compact-cell">
+                                        {% if event.link_colors %}
+                                            <span class="link-indicators">
+                                                {% for color in event.link_colors %}
+                                                    <span class="link-indicator" style="color: {{ color }};">■</span>
+                                                {% endfor %}
+                                            </span>
+                                        {% endif %}
+                                        {{ event.q|default:"-" }}
+                                    </td>
+                                    <td class="numeric">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
+                                    <td class="numeric">{{ event.commission|default:"-" }}</td>
+                                    <td style="font-style: italic; color: #666;">В поставке</td>
+                                </tr>
+                            {% endif %}
+                        {% endwith %}{% endfor %}
+                    </tbody>
+                </table>
+            </div>
         {% endfor %}
     </div>
     {% endif %}
@@ -301,6 +413,7 @@
     {% if dividend_history %}
     <div class="section">
         <h2>История дивидендов за {{ target_report_year_for_title }} год (код дохода 1010)</h2>
+        <p style="font-size: 9pt; margin-bottom: 8px;"><strong>Общая сумма дивидендов до налогов: {{ total_dividends_rub|floatformat:2|default:"0.00" }} RUB</strong></p>
         <table>
             <thead>
                 <tr>
@@ -333,7 +446,8 @@
         <h2>Прочие расходы и доходы за {{ target_report_year_for_title }} год</h2>
 
         {% if dividend_commissions %}
-        <h4>Комиссии, связанные с дивидендами:</h4>
+        <h4>Прочие расходы и доходы связанные с дивидендами:</h4>
+        <p style="font-size: 8pt; margin-bottom: 5px;"><strong>Общая сумма: {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</strong></p>
         <table>
             <thead>
                 <tr>
@@ -361,10 +475,8 @@
         {% endif %}
 
         {% if other_commissions %}
-        <h4>Прочие комиссии и расходы/доходы:</h4>
-        {% if total_other_commissions_rub %}
-        <p style="font-size: 8pt;"><strong>Общая сумма: {{ total_other_commissions_rub|floatformat:2 }} RUB</strong></p>
-        {% endif %}
+        <h4>Прочие расходы и доходы:</h4>
+        <p style="font-size: 8pt;"><strong>Общая сумма: {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB</strong></p>
         <table>
             <thead>
                 <tr>
