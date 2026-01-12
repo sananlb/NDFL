@@ -432,39 +432,10 @@
          <div class="no-data-message">Нет данных для отображения. Возможно, не найдено инструментов с продажами или дивидендов в целевом году ({{ target_report_year_for_title|default:"указанный" }}).</div>
     {% endif %}
 
-    {% if other_income_history %}
-        <div class="content-block">
-            <h2>Прочие доходы и расходы за {{ target_report_year_for_title|default:"указанный" }} год</h2>
-            <p><small>Общая сумма: {{ total_other_income_rub|floatformat:2 }} RUB</small></p>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Дата</th>
-                        <th>Описание</th>
-                        <th class="numeric">Сумма</th>
-                        <th>Валюта</th>
-                        <th class="numeric">Курс ЦБ на дату</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for income in other_income_history %}
-                        <tr>
-                            <td>{{ income.date|date:"Y-m-d" }}</td>
-                            <td>{{ income.description|default:"-" }}</td>
-                            <td class="numeric">{{ income.amount|floatformat:2 }}</td>
-                            <td>{{ income.currency|default:"N/A" }}</td>
-                            <td class="numeric">{{ income.cbr_rate_str|default:"-" }}</td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    {% endif %}
-
-    {# START: Block for Additional Commissions #}
+    {# START: Block for Additional Commissions and Other Expenses/Income #}
     {% if processing_has_run_for_current_display %}
         <div class="content-block">
-            <h2>Детализация прочих брокерских комиссий за {{ target_report_year_for_title|default:"указанный" }} год</h2>
+            <h2>Прочие расходы и доходы за {{ target_report_year_for_title|default:"указанный" }} год</h2>
 
             {% comment %} {# --- ОТЛАДОЧНЫЙ ВЫВОД (ОСТАВЬТЕ ЭТО!) --- #}
             <div style="background-color: #f0f0f0; border: 1px dashed #ccc; padding: 10px; margin: 10px 0; font-size: 0.8em;">
@@ -531,10 +502,11 @@
                  <p>Комиссии, связанные с дивидендами, не найдены (данные отсутствуют).</p>
             {% endif %}
             <br>
-            {# ----- Прочие комиссии ----- #}
-            <h4 style="margin-top: 20px;">Прочие комиссии:</h4>
-            {% if total_other_commissions_rub > 0 %}
-                 <p><h4>Общая сумма прочих комиссий: {{ total_other_commissions_rub|floatformat:2 }} RUB</p></h4>
+            {# ----- Прочие комиссии, проценты и другие расходы/доходы ----- #}
+            <h4 style="margin-top: 20px;">Прочие комиссии и расходы/доходы:</h4>
+            {% if total_other_commissions_rub %}
+                 <p><strong>Общая сумма: {{ total_other_commissions_rub|floatformat:2 }} RUB</strong></p>
+                 <p style="color: #666; font-size: 0.9em;">Отрицательные значения = расходы (комиссии, проценты за маржу). Положительные = доходы (кредитные проценты).</p>
             {% endif %}
 
             {% if other_commissions %}
@@ -543,7 +515,7 @@
                         <tr>
                             <th>Категория</th>
                             <th>Суммы в валютах</th>
-                            <th class="numeric">Общая сумма (RUB)</th>
+                            <th class="numeric">Сумма (RUB)</th>
                             <th>Описание</th>
                             <th>Детализация</th>
                         </tr>
@@ -554,10 +526,7 @@
                             <td>{{ category }}</td>
                             <td>
                                 {% for currency_code, amount_val in data.currencies.items %}
-                                    {% if amount_val > 0 %}
-                                        {{ amount_val|floatformat:2 }} {{ currency_code }}<br>
-                
-                                    {% endif %}
+                                    {{ amount_val|floatformat:2 }} {{ currency_code }}<br>
                                 {% empty %}
                                     Нет данных
                                 {% endfor %}
@@ -586,17 +555,17 @@
                                 {% endfor %}
                                 </ul>
                             </td>
-                            
+
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="5" style="text-align: center;">Прочие нераспределенные комиссии не найдены.</td>
+                            <td colspan="5" style="text-align: center;">Прочие расходы и доходы не найдены.</td>
                         </tr>
                     {% endfor %}
                     </tbody>
                 </table>
             {% else %}
-                <p>Прочие нераспределенные комиссии не найдены (данные отсутствуют).</p>
+                <p>Прочие расходы и доходы не найдены.</p>
             {% endif %}
         </div>
     {% elif processing_has_run_for_current_display and not instrument_event_history and not dividend_history %}

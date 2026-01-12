@@ -17,7 +17,7 @@ class IBParser(BaseBrokerParser):
             messages.info(self.request, "У вас нет загруженных IB отчетов для анализа истории.")
             empty_commissions = defaultdict(lambda: {'amount_by_currency': defaultdict(Decimal), 'amount_rub': Decimal(0), 'details': []})
             empty_other = defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []})
-            return {}, [], Decimal(0), Decimal(0), False, empty_commissions, empty_other, Decimal(0), [], Decimal(0)
+            return {}, [], Decimal(0), Decimal(0), False, empty_commissions, empty_other, Decimal(0)
 
         sections = {}
         for report in reports:
@@ -33,14 +33,13 @@ class IBParser(BaseBrokerParser):
         trades = self._parse_trades(sections, other_commissions)
         dividends = self._parse_dividends(sections)
         conversions = self._parse_corporate_actions(sections)
-        other_income = self._parse_interest(sections)
-        self._parse_fees(sections, other_commissions)
+        self._parse_interest(sections, other_commissions)
+        self._parse_fees(sections, other_commissions, dividend_commissions)
 
         instrument_event_history, total_sales_profit = self._build_fifo_history(trades, conversions)
 
         total_other_commissions_rub = sum((data.get('total_rub', Decimal(0)) for data in other_commissions.values()), Decimal(0))
         total_dividends_rub = sum((d.get('amount_rub', Decimal(0)) for d in dividends), Decimal(0))
-        total_other_income_rub = sum((i.get('amount_rub', Decimal(0)) for i in other_income), Decimal(0))
 
         return (
             instrument_event_history,
@@ -51,8 +50,6 @@ class IBParser(BaseBrokerParser):
             dividend_commissions,
             other_commissions,
             total_other_commissions_rub,
-            other_income,
-            total_other_income_rub,
         )
 
     def _get_reports(self):
@@ -269,7 +266,12 @@ class IBParser(BaseBrokerParser):
         dividends.sort(key=lambda x: (x.get('date') or date.min, x.get('ticker') or ''))
         return dividends
 
-    def _parse_fees(self, sections, other_commissions):
+    def _parse_fees(self, sections, other_commissions, dividend_commissions):
+        """Парсит секцию Сборы/комиссии.
+
+        ADR fees и комиссии связанные с дивидендами идут в dividend_commissions.
+        Остальные комиссии идут в other_commissions.
+        """
         fee_blocks = sections.get('Сборы/комиссии') or []
         if not fee_blocks:
             return
@@ -284,13 +286,30 @@ class IBParser(BaseBrokerParser):
                 dt_obj = self._parse_datetime(date_raw)
                 if not dt_obj or dt_obj.year != self.target_year or amount == 0:
                     continue
-                self._add_other_commission(other_commissions, subtitle, amount, currency, dt_obj, description)
 
-    def _parse_interest(self, sections):
+                # Проверяем, связана ли комиссия с дивидендами
+                # Примеры: "HSBK(...) Наличный дивиденд USD 2.258938 на акцию - FEE"
+                desc_lower = (description or '').lower()
+                is_dividend_related = 'дивиденд' in desc_lower or 'dividend' in desc_lower
+
+                if is_dividend_related:
+                    # Извлекаем тикер из описания для категории
+                    ticker = self._extract_ticker_from_fee_description(description)
+                    category = f"Комиссия по дивидендам ({ticker})" if ticker else "Комиссии по дивидендам"
+                    self._add_dividend_commission(dividend_commissions, category, amount, currency, dt_obj, description)
+                else:
+                    self._add_other_commission(other_commissions, subtitle, amount, currency, dt_obj, description)
+
+    def _parse_interest(self, sections, other_commissions):
+        """Парсит проценты (Interest) и добавляет их в other_commissions.
+
+        Положительные суммы = кредитные проценты (доход)
+        Отрицательные суммы = дебетовые проценты/маржа (расход)
+        Все учитываются в общей сумме прочих расходов/доходов.
+        """
         interest_blocks = sections.get('Процент') or []
         if not interest_blocks:
-            return []
-        entries = []
+            return
         for block in interest_blocks:
             header_map = self._header_map(block.get('header', []))
             for row in block.get('data', []):
@@ -301,18 +320,12 @@ class IBParser(BaseBrokerParser):
                 dt_obj = self._parse_datetime(date_raw)
                 if not dt_obj or dt_obj.year != self.target_year or amount == 0:
                     continue
-                cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
-                amount_rub = (amount * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
-                entries.append({
-                    'date': dt_obj.date(),
-                    'description': description,
-                    'amount': amount,
-                    'currency': currency,
-                    'cbr_rate_str': f"{cbr_rate:.4f}" if cbr_rate else '-',
-                    'amount_rub': amount_rub,
-                })
-        entries.sort(key=lambda x: x.get('date') or date.min)
-        return entries
+                # Определяем категорию по знаку суммы
+                if amount > 0:
+                    category = 'Кредитные проценты (доход)'
+                else:
+                    category = 'Проценты за маржинальное кредитование'
+                self._add_other_commission(other_commissions, category, amount, currency, dt_obj, description)
 
     def _extract_symbol_isin(self, description):
         if not description:
@@ -371,17 +384,55 @@ class IBParser(BaseBrokerParser):
         self._add_other_commission(other_commissions, 'FX комиссии', amount, currency, dt_obj, 'Forex trade commission')
 
     def _add_other_commission(self, other_commissions, category, amount, currency, dt_obj, description):
-        normalized_amount = abs(amount)
+        """Добавляет запись в other_commissions.
+
+        Сохраняем оригинальный знак суммы:
+        - Отрицательные = расходы (комиссии, проценты за маржу)
+        - Положительные = доходы (кредитные проценты)
+        """
         cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
-        amount_rub = (normalized_amount * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
-        other_commissions[category]['currencies'][currency] += normalized_amount
+        amount_rub = (amount * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
+        other_commissions[category]['currencies'][currency] += amount
         other_commissions[category]['total_rub'] += amount_rub
         other_commissions[category]['raw_events'].append({
             'date': dt_obj.date(),
-            'amount': normalized_amount,
+            'amount': amount,
             'currency': currency,
             'amount_rub': amount_rub,
             'description': description,
+        })
+
+    def _extract_ticker_from_fee_description(self, description):
+        """Извлекает тикер из описания комиссии.
+
+        Примеры:
+        - "HSBK(US46627J3023) Наличный дивиденд USD 2.258938 на акцию - FEE" -> "HSBK"
+        - "GLTR.OLD(US37949E2046) Наличный дивиденд USD 3.910916 на акцию - FEE" -> "GLTR.OLD"
+        """
+        if not description:
+            return None
+        match = re.match(r'^([A-Z0-9.]+)\(', description.strip())
+        if match:
+            return match.group(1)
+        return None
+
+    def _add_dividend_commission(self, dividend_commissions, category, amount, currency, dt_obj, description):
+        """Добавляет запись в dividend_commissions.
+
+        Структура совместима с FFG: amount_by_currency, amount_rub, details.
+        """
+        cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
+        # Комиссии приходят отрицательными, берём abs для отображения
+        actual_amount = abs(amount)
+        amount_rub = (actual_amount * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
+        dividend_commissions[category]['amount_by_currency'][currency] += actual_amount
+        dividend_commissions[category]['amount_rub'] += amount_rub
+        dividend_commissions[category]['details'].append({
+            'date': dt_obj.strftime('%d.%m.%Y'),
+            'amount': actual_amount,
+            'currency': currency,
+            'amount_rub': amount_rub,
+            'comment': description,
         })
 
     def _build_fifo_history(self, trades, conversions):

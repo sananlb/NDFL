@@ -14,6 +14,5 @@ class FFGParser(BaseBrokerParser):
             self.target_year,
             files_queryset=files_queryset,
         )
-        other_income = []
-        total_other_income_rub = Decimal(0)
-        return (*result, other_income, total_other_income_rub)
+        # FFG возвращает 8 элементов, IB тоже теперь 8
+        return result

@@ -164,11 +164,8 @@
         {% if total_dividends_rub %}
         <p><strong>Сумма дивидендов до налогов (код дохода 1010):</strong> {{ total_dividends_rub|floatformat:2 }} RUB</p>
         {% endif %}
-        {% if total_other_income_rub %}
-        <p><strong>Прочие доходы и расходы:</strong> {{ total_other_income_rub|floatformat:2 }} RUB</p>
-        {% endif %}
         {% if total_other_commissions_rub %}
-        <p><strong>Прочие комиссии:</strong> {{ total_other_commissions_rub|floatformat:2 }} RUB</p>
+        <p><strong>Прочие расходы и доходы:</strong> {{ total_other_commissions_rub|floatformat:2 }} RUB</p>
         {% endif %}
     </div>
 
@@ -329,37 +326,9 @@
     </div>
     {% endif %}
 
-    {% if other_income_history %}
-    <div class="section">
-        <h2>Прочие доходы и расходы за {{ target_report_year_for_title }} год</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Дата</th>
-                    <th>Описание</th>
-                    <th>Сумма</th>
-                    <th>Валюта</th>
-                    <th>Курс ЦБ</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for income in other_income_history %}
-                    <tr>
-                        <td>{{ income.date|date:"Y-m-d" }}</td>
-                        <td>{{ income.description|default:"-" }}</td>
-                        <td class="numeric">{{ income.amount|floatformat:2 }}</td>
-                        <td>{{ income.currency|default:"N/A" }}</td>
-                        <td class="numeric">{{ income.cbr_rate_str|default:"-" }}</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% endif %}
-
     {% if dividend_commissions or other_commissions %}
     <div class="section">
-        <h2>Детализация прочих брокерских комиссий за {{ target_report_year_for_title }} год</h2>
+        <h2>Прочие расходы и доходы за {{ target_report_year_for_title }} год</h2>
 
         {% if dividend_commissions %}
         <h4>Комиссии, связанные с дивидендами:</h4>
@@ -390,7 +359,7 @@
         {% endif %}
 
         {% if other_commissions %}
-        <h4>Прочие комиссии:</h4>
+        <h4>Прочие комиссии и расходы/доходы:</h4>
         {% if total_other_commissions_rub %}
         <p style="font-size: 8pt;"><strong>Общая сумма: {{ total_other_commissions_rub|floatformat:2 }} RUB</strong></p>
         {% endif %}
@@ -399,7 +368,7 @@
                 <tr>
                     <th>Категория</th>
                     <th>Суммы в валютах</th>
-                    <th>Общая сумма (RUB)</th>
+                    <th>Сумма (RUB)</th>
                     <th>Описание</th>
                 </tr>
             </thead>
@@ -409,9 +378,7 @@
                         <td>{{ category }}</td>
                         <td>
                             {% for currency_code, amount_val in data.currencies.items %}
-                                {% if amount_val > 0 %}
-                                    {{ amount_val|floatformat:2 }} {{ currency_code }}{% if not forloop.last %}, {% endif %}
-                                {% endif %}
+                                {{ amount_val|floatformat:2 }} {{ currency_code }}{% if not forloop.last %}, {% endif %}
                             {% empty %}
                                 Нет данных
                             {% endfor %}
