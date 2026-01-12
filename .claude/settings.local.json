@@ -25,7 +25,8 @@
       "Bash(./venv/Scripts/python.exe manage.py check)",
       "Bash(./venv/Scripts/python.exe manage.py showmigrations:*)",
       "Bash(mv:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(ssh:*)"
     ],
     "deny": []
   }

@@ -158,6 +158,9 @@
     </div>
 
     <h1>Отчет по расчету НДФЛ за {{ target_report_year_for_title }} год</h1>
+    <p style="font-size: 9pt; margin-top: 0; margin-bottom: 10px;">
+        <strong>Брокер:</strong> {{ broker_name }}{% if account_number %} | <strong>Счёт:</strong> {{ account_number }}{% endif %}
+    </p>
 
     <div class="summary-box">
         <p><strong>Финансовый результат по сделкам (код дохода 1530):</strong> {{ total_sales_profit_rub|floatformat:2 }} RUB</p>

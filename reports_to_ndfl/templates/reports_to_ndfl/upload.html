@@ -159,6 +159,52 @@
 
         .no-data-message { margin-top: 20px; padding: 15px; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 4px; text-align: center; color: #495057;}
 
+        /* Стили для кнопок выбора года */
+        .year-selector {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        .year-btn {
+            padding: 10px 20px;
+            border: 2px solid #007bff;
+            background-color: #fff;
+            color: #007bff;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            transition: all 0.2s ease;
+        }
+
+        .year-btn:hover {
+            background-color: #e6f0ff;
+        }
+
+        .year-btn.selected {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .no-years-message {
+            color: #666;
+            font-style: italic;
+            margin-bottom: 15px;
+        }
+
+        /* Стили для неактивной кнопки */
+        button[type="submit"]:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        button[type="submit"]:disabled:hover {
+            background-color: #cccccc;
+        }
+
         @media (max-width: 768px) {
             .container { flex-direction: column; }
             .main-content, .sidebar { width: 100%; }
@@ -207,10 +253,25 @@
                 <div class="form-section">
                     <h3>2. Анализ и расчет сделок и дивидендов</h3>
                     <div>
-                        <label for="year_input_process">Целевой год для анализа:</label>
-                        <input type="number" name="year_for_process" id="year_input_process" required placeholder="YYYY" value="{{ target_report_year_for_title|default_if_none:'' }}">
+                        <label>Целевой год для анализа:</label>
+                        {% if available_years %}
+                            <div class="year-selector" id="year_selector">
+                                {% for year in available_years %}
+                                    <button type="button"
+                                            class="year-btn {% if year == selected_year %}selected{% endif %}"
+                                            data-year="{{ year }}"
+                                            onclick="selectYear({{ year }}, this)">
+                                        {{ year }}
+                                    </button>
+                                {% endfor %}
+                            </div>
+                            <input type="hidden" name="year_for_process" id="year_input_process" value="{{ selected_year|default:'' }}">
+                        {% else %}
+                            <p class="no-years-message">Сначала загрузите отчёты для выбранного брокера</p>
+                            <input type="hidden" name="year_for_process" id="year_input_process" value="">
+                        {% endif %}
                     </div>
-                    <button type="submit" name="action" value="process_trades">Рассчитать данные за указанный год</button>
+                    <button type="submit" name="action" value="process_trades" id="process_btn" disabled>Рассчитать данные за указанный год</button>
                 </div>
             </form>
         </div>
@@ -561,6 +622,7 @@
     {% endif %}
 
     <script>
+        // Обработчик выбора файлов
         document.getElementById('report_file_input').addEventListener('change', function(event) {
             const fileList = event.target.files;
             const selectedFilesDiv = document.getElementById('selected_files');
@@ -577,11 +639,45 @@
                 selectedFilesDiv.appendChild(fileListElement);
             }
         });
-        const yearInputHTML = document.getElementById('year_input_process');
-        if (yearInputHTML) {
-            const defaultYearValue = "{{ request.session.last_target_year|default_if_none:'' }}";
-            if (yearInputHTML.value === '' && defaultYearValue !== '') { yearInputHTML.value = defaultYearValue; }
+
+        // Функция выбора года
+        function selectYear(year, btn) {
+            // Убираем selected со всех кнопок
+            document.querySelectorAll('.year-btn').forEach(b => {
+                b.classList.remove('selected');
+            });
+
+            // Добавляем selected на нажатую кнопку
+            btn.classList.add('selected');
+
+            // Устанавливаем значение в скрытый input
+            document.getElementById('year_input_process').value = year;
+
+            // Активируем кнопку расчёта
+            updateProcessButton();
         }
+
+        // Функция обновления состояния кнопки расчёта
+        function updateProcessButton() {
+            const yearInput = document.getElementById('year_input_process');
+            const processBtn = document.getElementById('process_btn');
+            const hasYear = yearInput && yearInput.value;
+            const hasReports = {{ has_uploaded_reports|yesno:"true,false" }};
+
+            if (processBtn) {
+                processBtn.disabled = !(hasYear && hasReports);
+            }
+        }
+
+        // Вызываем при загрузке страницы для установки начального состояния
+        document.addEventListener('DOMContentLoaded', updateProcessButton);
+
+        // При смене брокера перезагружаем страницу для обновления списка годов
+        document.getElementById('broker_type_select').addEventListener('change', function() {
+            const selectedBroker = this.value;
+            // Перезагружаем страницу с параметром для сохранения выбора брокера
+            window.location.href = '?set_broker=' + selectedBroker;
+        });
     </script>
 </body>
 </html>
