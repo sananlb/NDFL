@@ -157,13 +157,7 @@
         Дата формирования: {{ generation_date }}
     </div>
 
-    <h1>Отчет по расчету НДФЛ за {{ target_report_year_for_title }} год</h1>
-    <table style="width: 100%; margin-bottom: 15px; border: none;">
-        <tr>
-            <td style="border: none; padding: 2px 0; font-size: 9pt;"><strong>Брокер:</strong> {{ broker_name }}</td>
-            <td style="border: none; padding: 2px 0; font-size: 9pt; text-align: right;"><strong>Счёт:</strong> {{ account_number|default:"не указан" }}</td>
-        </tr>
-    </table>
+    <h1>Расчет операций за {{ target_report_year_for_title }} год на основании отчетов брокера {{ broker_name }}{% if account_number %} счет {{ account_number }}{% endif %} для заполнения декларации 3-НДФЛ</h1>
 
     <div class="summary-box">
         <p><strong>Финансовый результат по сделкам (код дохода 1530):</strong> {{ total_sales_profit_rub|floatformat:2 }} RUB</p>
