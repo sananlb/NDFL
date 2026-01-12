@@ -160,8 +160,8 @@
     <h1>Расчет операций за {{ target_report_year_for_title }} год на основании отчетов брокера {{ broker_name }}{% if account_number %} счет {{ account_number }}{% endif %} для заполнения декларации 3-НДФЛ</h1>
 
     <div class="summary-box">
-        <p><strong>Финансовый результат по сделкам с ценными бумагами (код дохода 1530):</strong> {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</p>
-        <p><strong>Финансовый результат по сделкам с производными фин. инструментами (код дохода 1532):</strong> {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB</p>
+        <p><strong>Финансовый результат (код дохода 1530):</strong> {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</p>
+        <p><strong>Финансовый результат (код дохода 1532):</strong> {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB</p>
         <p><strong>Общая сумма дивидендов до налогов (код дохода 1010):</strong> {{ total_dividends_rub|floatformat:2|default:"0.00" }} RUB</p>
         <p><strong>Прочие расходы и доходы:</strong> {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB</p>
         <p><strong>Прочие расходы и доходы связанные с дивидендами:</strong> {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</p>
@@ -178,8 +178,8 @@
 
     {% if instrument_history_1530 %}
     <div class="section">
-        <h2>История операций по акциям и распискам за {{ target_report_year_for_title }} год (код дохода 1530)</h2>
-        <p style="font-size: 9pt; margin-bottom: 8px;"><strong>Финансовый результат по сделкам с ценными бумагами: {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</strong></p>
+        <h2>История операций с ценными бумагами за {{ target_report_year_for_title }} год (код дохода 1530)</h2>
+        <p style="font-size: 9pt; margin-bottom: 8px;"><strong>Финансовый результат: {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</strong></p>
         <p class="note">Серым цветом выделены операции, не связанные напрямую с продажами в целевом году</p>
 
         {% for grouping_isin, event_list in instrument_history_1530.items %}
@@ -296,7 +296,7 @@
     {% if instrument_history_1532 %}
     <div class="section">
         <h2>История операций по производным фин. инструментам за {{ target_report_year_for_title }} год (код дохода 1532)</h2>
-        <p style="font-size: 9pt; margin-bottom: 8px;"><strong>Финансовый результат по сделкам с производными фин. инструментами: {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB</strong></p>
+        <p style="font-size: 9pt; margin-bottom: 8px;"><strong>Финансовый результат: {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB</strong></p>
         <p class="note">Серым цветом выделены операции, не связанные напрямую с продажами в целевом году</p>
 
         {% for grouping_isin, event_list in instrument_history_1532.items %}

@@ -307,8 +307,8 @@
 
     {% if instrument_history_1530 %}
         <div class="content-block">
-            <h2>История операций по акциям и распискам за {{ target_report_year_for_title|default:"указанный" }} год (код дохода 1530):
-                <p><small>Финансовый результат по сделкам с ценными бумагами: {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</small></p>
+            <h2>История операций с ценными бумагами за {{ target_report_year_for_title|default:"указанный" }} год (код дохода 1530):
+                <p><small>Финансовый результат: {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</small></p>
             </h2>
             <p style="font-size: 0.9em; color: #666; margin-top: 5px;"><em>Примечание: серым цветом выделены операции, не связанные с продажами в {{ target_report_year_for_title }} году</em></p>
             <br>
@@ -396,7 +396,7 @@
     {% if instrument_history_1532 %}
         <div class="content-block">
             <h2>История операций по производным фин. инструментам за {{ target_report_year_for_title|default:"указанный" }} год (код дохода 1532):
-                <p><small>Финансовый результат по сделкам с производными фин. инструментами: {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB</small></p>
+                <p><small>Финансовый результат: {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB</small></p>
             </h2>
             <p style="font-size: 0.9em; color: #666; margin-top: 5px;"><em>Примечание: серым цветом выделены операции, не связанные с продажами в {{ target_report_year_for_title }} году</em></p>
             <br>
