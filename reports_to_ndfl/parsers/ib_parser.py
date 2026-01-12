@@ -170,6 +170,7 @@ class IBParser(BaseBrokerParser):
                 quantity_raw = self._get_value(row, header_map, ['Количество', 'Quantity'])
                 price_raw = self._get_value(row, header_map, ['Цена транзакции', 'T. Price', 'Trade Price'])
                 commission_raw = self._get_value(row, header_map, ['Комиссия/плата', 'Comm/Fee', 'Комиссия в USD'])
+                proceeds_raw = self._get_value(row, header_map, ['Выручка', 'Proceeds'])
 
                 quantity = self._parse_decimal(quantity_raw)
                 if quantity == 0:
@@ -180,6 +181,17 @@ class IBParser(BaseBrokerParser):
                 trade_id = f"IB_{symbol}_{dt_obj.strftime('%Y%m%d%H%M%S') if dt_obj else trade_index}_{trade_index}"
                 cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
 
+                price = self._parse_decimal(price_raw)
+                proceeds = self._parse_decimal(proceeds_raw)
+
+                # Для опционов: множитель 100 (1 контракт = 100 акций)
+                # IB уже учитывает множитель в колонке Proceeds, но не в Price
+                is_option = asset_class in ('Опционы на акции и индексы', 'Stock Options')
+                if is_option:
+                    multiplier = Decimal(100)
+                else:
+                    multiplier = Decimal(1)
+
                 trade = {
                     'trade_id': trade_id,
                     'datetime_obj': dt_obj,
@@ -187,7 +199,9 @@ class IBParser(BaseBrokerParser):
                     'symbol': symbol,
                     'group_symbol': group_symbol,
                     'quantity': abs(quantity),
-                    'price': self._parse_decimal(price_raw),
+                    'price': price,
+                    'proceeds': abs(proceeds),
+                    'multiplier': multiplier,
                     'commission': abs(self._parse_decimal(commission_raw)),
                     'currency': currency,
                     'cbr_rate': cbr_rate,
@@ -396,11 +410,14 @@ class IBParser(BaseBrokerParser):
             price = trade.get('price', Decimal(0))
             commission = trade.get('commission', Decimal(0))
             cbr_rate = trade.get('cbr_rate', Decimal(0))
+            multiplier = trade.get('multiplier', Decimal(1))
+            proceeds = trade.get('proceeds', price * quantity * multiplier)
 
             if trade['operation'] == 'buy':
                 # Покрываем открытые шорты (если есть)
                 remaining = quantity
-                cost_shares_rub = (price * quantity * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                # Для опционов: сумма = цена * количество * множитель (100)
+                cost_shares_rub = (proceeds * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 cost_comm_rub = (commission * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 cost_per_share_rub = Decimal(0)
                 if quantity:
@@ -484,7 +501,8 @@ class IBParser(BaseBrokerParser):
                 'curr_c': trade.get('currency'),
                 'cbr_rate': cbr_rate,
                 'q': quantity,
-                'summ': price * quantity,
+                'multiplier': multiplier,
+                'summ': proceeds,  # Для опционов уже включает множитель 100
                 'commission': commission,
                 'fifo_cost_rub_decimal': fifo_cost_rub,
                 'fifo_cost_rub_str': fifo_cost_str,
@@ -585,7 +603,8 @@ class IBParser(BaseBrokerParser):
                 if details.get('operation') == 'sell':
                     dt_obj = event.get('datetime_obj')
                     if dt_obj and dt_obj.year == self.target_year:
-                        income_rub = (details.get('p', Decimal(0)) * details.get('q', Decimal(0)) * details.get('cbr_rate', Decimal(0))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        # Используем summ, которая уже учитывает множитель для опционов
+                        income_rub = (details.get('summ', Decimal(0)) * details.get('cbr_rate', Decimal(0))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                         fifo_cost_val = details.get('fifo_cost_rub_decimal', Decimal(0)) or Decimal(0)
                         total_sales_profit_rub += (income_rub - fifo_cost_val)
 
