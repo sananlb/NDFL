@@ -14,5 +14,10 @@ class FFGParser(BaseBrokerParser):
             self.target_year,
             files_queryset=files_queryset,
         )
-        # FFG возвращает 8 элементов, IB тоже теперь 8
+        # FFG возвращает 8 элементов, добавляем 9-й для совместимости с IB
+        # FFG не поддерживает опционы, поэтому всё идет в код 1530
+        if len(result) == 8:
+            total_sales_profit = result[3] if len(result) > 3 else Decimal(0)
+            profit_by_income_code = {'1530': total_sales_profit, '1532': Decimal(0)}
+            result = result + (profit_by_income_code,)
         return result

@@ -17,7 +17,8 @@ class IBParser(BaseBrokerParser):
             messages.info(self.request, "У вас нет загруженных IB отчетов для анализа истории.")
             empty_commissions = defaultdict(lambda: {'amount_by_currency': defaultdict(Decimal), 'amount_rub': Decimal(0), 'details': []})
             empty_other = defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []})
-            return {}, [], Decimal(0), Decimal(0), False, empty_commissions, empty_other, Decimal(0)
+            empty_profit_by_code = {'1530': Decimal(0), '1532': Decimal(0)}
+            return {}, [], Decimal(0), Decimal(0), False, empty_commissions, empty_other, Decimal(0), empty_profit_by_code
 
         sections = {}
         for report in reports:
@@ -36,7 +37,7 @@ class IBParser(BaseBrokerParser):
         self._parse_interest(sections, other_commissions)
         self._parse_fees(sections, other_commissions, dividend_commissions)
 
-        instrument_event_history, total_sales_profit = self._build_fifo_history(trades, conversions)
+        instrument_event_history, total_sales_profit, profit_by_income_code = self._build_fifo_history(trades, conversions)
 
         total_other_commissions_rub = sum((data.get('total_rub', Decimal(0)) for data in other_commissions.values()), Decimal(0))
         total_dividends_rub = sum((d.get('amount_rub', Decimal(0)) for d in dividends), Decimal(0))
@@ -50,6 +51,7 @@ class IBParser(BaseBrokerParser):
             dividend_commissions,
             other_commissions,
             total_other_commissions_rub,
+            profit_by_income_code,
         )
 
     def _get_reports(self):
@@ -189,6 +191,9 @@ class IBParser(BaseBrokerParser):
                 else:
                     multiplier = Decimal(1)
 
+                # Код дохода: 1530 для акций, 1532 для ПФИ (опционов)
+                income_code = '1532' if is_option else '1530'
+
                 trade = {
                     'trade_id': trade_id,
                     'datetime_obj': dt_obj,
@@ -203,6 +208,7 @@ class IBParser(BaseBrokerParser):
                     'currency': currency,
                     'cbr_rate': cbr_rate,
                     'instr_kind': asset_class,
+                    'income_code': income_code,
                 }
                 trades.append(trade)
                 trade_index += 1
@@ -548,6 +554,7 @@ class IBParser(BaseBrokerParser):
                 'instr_nm': trade.get('symbol') or symbol,
                 'isin': symbol,
                 'instr_kind': trade.get('instr_kind'),
+                'income_code': trade.get('income_code', '1530'),
                 'p': price,
                 'curr_c': trade.get('currency'),
                 'cbr_rate': cbr_rate,
@@ -646,6 +653,8 @@ class IBParser(BaseBrokerParser):
                 details['link_colors'] = colors
 
         # Пересчет total_sales_profit_rub после учета шортов/покрытий
+        # Разделение по кодам дохода: 1530 (акции), 1532 (ПФИ/опционы)
+        profit_by_income_code = {'1530': Decimal(0), '1532': Decimal(0)}
         for symbol, events in instrument_events.items():
             for event in events:
                 if event.get('display_type') != 'trade':
@@ -657,7 +666,11 @@ class IBParser(BaseBrokerParser):
                         # Используем summ, которая уже учитывает множитель для опционов
                         income_rub = (details.get('summ', Decimal(0)) * details.get('cbr_rate', Decimal(0))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                         fifo_cost_val = details.get('fifo_cost_rub_decimal', Decimal(0)) or Decimal(0)
-                        total_sales_profit_rub += (income_rub - fifo_cost_val)
+                        profit = income_rub - fifo_cost_val
+                        total_sales_profit_rub += profit
+                        # Добавляем в соответствующий код дохода
+                        income_code = details.get('income_code', '1530')
+                        profit_by_income_code[income_code] = profit_by_income_code.get(income_code, Decimal(0)) + profit
 
         filtered_history = {}
         for symbol, events in instrument_events.items():
@@ -665,7 +678,7 @@ class IBParser(BaseBrokerParser):
                 events.sort(key=lambda x: x.get('datetime_obj') or datetime.min)
                 filtered_history[symbol] = events
 
-        return filtered_history, total_sales_profit_rub
+        return filtered_history, total_sales_profit_rub, profit_by_income_code
 
     def _apply_conversion(self, conv, buy_lots, instrument_events):
         old_symbol = conv['old_ticker']

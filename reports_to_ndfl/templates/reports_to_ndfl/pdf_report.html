@@ -160,13 +160,15 @@
     <h1>Расчет операций за {{ target_report_year_for_title }} год на основании отчетов брокера {{ broker_name }}{% if account_number %} счет {{ account_number }}{% endif %} для заполнения декларации 3-НДФЛ</h1>
 
     <div class="summary-box">
-        <p><strong>Финансовый результат по сделкам (код дохода 1530):</strong> {{ total_sales_profit_rub|floatformat:2 }} RUB</p>
+        <p><strong>Финансовый результат по сделкам с ценными бумагами (код дохода 1530):</strong> {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</p>
+        {% if profit_by_income_code.1532 and profit_by_income_code.1532 != 0 %}
+        <p><strong>Финансовый результат по ПФИ / опционам (код дохода 1532):</strong> {{ profit_by_income_code.1532|floatformat:2 }} RUB</p>
+        {% endif %}
         {% if total_dividends_rub %}
         <p><strong>Сумма дивидендов до налогов (код дохода 1010):</strong> {{ total_dividends_rub|floatformat:2 }} RUB</p>
         {% endif %}
-        {% if total_other_commissions_rub %}
-        <p><strong>Прочие расходы и доходы:</strong> {{ total_other_commissions_rub|floatformat:2 }} RUB</p>
-        {% endif %}
+        <p><strong>Прочие доходы и расходы:</strong> {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB</p>
+        <p><strong>Прочие комиссии:</strong> {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</p>
     </div>
 
     {% if user_comment %}
@@ -366,10 +368,10 @@
         <table>
             <thead>
                 <tr>
-                    <th>Категория</th>
-                    <th>Суммы в валютах</th>
-                    <th>Сумма (RUB)</th>
-                    <th>Описание</th>
+                    <th style="width: 25%;">Категория</th>
+                    <th style="width: 17%;">Суммы в валютах</th>
+                    <th style="width: 18%;">Сумма (RUB)</th>
+                    <th style="width: 40%;">Описание</th>
                 </tr>
             </thead>
             <tbody>
@@ -384,9 +386,9 @@
                             {% endfor %}
                         </td>
                         <td class="numeric"><strong>{{ data.total_rub|floatformat:2 }}</strong></td>
-                        <td>
+                        <td style="font-size: 7pt;">
                             {% for event in data.raw_events %}
-                                {{ event.date|date:"Y-m-d" }}: {{ event.description|default:"-" }}{% if not forloop.last %}; {% endif %}
+                                {{ event.date|date:"Y-m-d" }}: {{ event.description|default:"-" }}{% if not forloop.last %}<br>{% endif %}
                             {% endfor %}
                         </td>
                     </tr>

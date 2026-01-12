@@ -187,6 +187,7 @@ def upload_xml_file(request):
         'previously_uploaded_files': BrokerReport.objects.filter(user=user).order_by('-year', '-uploaded_at'),
         'dividend_commissions': {},
         'other_commissions': {},
+        'total_dividend_commissions_rub': Decimal(0),
         'total_other_commissions_rub': Decimal(0),
         'selected_broker_type': selected_broker_type,
         'available_years': available_years,
@@ -331,8 +332,8 @@ def upload_xml_file(request):
 
             instrument_event_history, dividend_events, total_dividends_rub, \
             total_sales_profit, parsing_error_current_run, \
-            dividend_commissions_data, other_commissions_data, total_other_commissions_rub_val = \
-                parser.process()
+            dividend_commissions_data, other_commissions_data, total_other_commissions_rub_val, \
+            profit_by_income_code = parser.process()
 
             # Явное преобразование defaultdict в обычные dict
             # Это должно гарантировать, что в шаблон попадут стандартные dict,
@@ -368,14 +369,22 @@ def upload_xml_file(request):
                 if not key.startswith('OPTION_'):
                     sorted_instrument_history[key] = instrument_event_history[key]
 
+            # Вычисляем сумму комиссий, связанных с дивидендами
+            total_dividend_commissions_rub = sum(
+                (data.get('amount_rub', Decimal(0)) for data in dividend_commissions_data.values()),
+                Decimal(0)
+            )
+
             context['instrument_event_history'] = sorted_instrument_history
             context['dividend_history'] = dividend_events
             context['total_dividends_rub'] = total_dividends_rub
             context['total_sales_profit_rub'] = total_sales_profit
+            context['profit_by_income_code'] = profit_by_income_code
             context['parsing_error_occurred'] = parsing_error_current_run
             context['processing_has_run_for_current_display'] = True
             context['dividend_commissions'] = dividend_commissions_data
             context['other_commissions'] = other_commissions_data
+            context['total_dividend_commissions_rub'] = total_dividend_commissions_rub
             context['total_other_commissions_rub'] = total_other_commissions_rub_val
 
     return render(request, 'reports_to_ndfl/upload.html', context)
@@ -408,7 +417,8 @@ def download_pdf(request):
 
     instrument_event_history, dividend_events, total_dividends_rub, \
     total_sales_profit, parsing_error, \
-    dividend_commissions_data, other_commissions_data, total_other_commissions_rub_val = parser.process()
+    dividend_commissions_data, other_commissions_data, total_other_commissions_rub_val, \
+    profit_by_income_code = parser.process()
 
     # Преобразуем defaultdict в обычные dict
     if isinstance(dividend_commissions_data, defaultdict):
@@ -457,6 +467,12 @@ def download_pdf(request):
     # Получаем комментарий пользователя
     user_comment = request.GET.get('comment', '').strip()
 
+    # Вычисляем сумму комиссий, связанных с дивидендами
+    total_dividend_commissions_rub = sum(
+        (data.get('amount_rub', Decimal(0)) for data in dividend_commissions_data.values()),
+        Decimal(0)
+    )
+
     # Контекст для PDF шаблона (БЕЗ информации о пользователе)
     context = {
         'target_report_year_for_title': target_year,
@@ -467,8 +483,10 @@ def download_pdf(request):
         'dividend_history': dividend_events,
         'total_dividends_rub': total_dividends_rub,
         'total_sales_profit_rub': total_sales_profit,
+        'profit_by_income_code': profit_by_income_code,
         'dividend_commissions': dividend_commissions_data,
         'other_commissions': other_commissions_data,
+        'total_dividend_commissions_rub': total_dividend_commissions_rub,
         'total_other_commissions_rub': total_other_commissions_rub_val,
         'generation_date': datetime.now().strftime('%d.%m.%Y %H:%M'),
     }

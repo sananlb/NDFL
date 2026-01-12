@@ -307,8 +307,15 @@
 
     {% if instrument_event_history %}
         <div class="content-block">
-            <h2>История операций по инструментам с продажами в {{ target_report_year_for_title|default:"указанный" }} году (код дохода 1530):</h2>
-            <h3>Общий финансовый результат по сделкам продажи: {{ total_sales_profit_rub|floatformat:2 }} RUB</h3>
+            <h2>История операций по инструментам с продажами в {{ target_report_year_for_title|default:"указанный" }} году</h2>
+            <div style="background-color: #f8f9fa; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 5px;">
+                <h3 style="margin-top: 0;">Финансовый результат по кодам дохода:</h3>
+                <p style="margin: 5px 0;"><strong>Код 1530 (ценные бумаги):</strong> {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</p>
+                {% if profit_by_income_code.1532 and profit_by_income_code.1532 != 0 %}
+                <p style="margin: 5px 0;"><strong>Код 1532 (ПФИ / опционы):</strong> {{ profit_by_income_code.1532|floatformat:2 }} RUB</p>
+                {% endif %}
+                <p style="margin: 10px 0 0 0; padding-top: 10px; border-top: 1px solid #ddd;"><strong>Итого по сделкам:</strong> {{ total_sales_profit_rub|floatformat:2 }} RUB</p>
+            </div>
             <p style="font-size: 0.9em; color: #666; margin-top: 5px;"><em>Примечание: серым цветом выделены операции, не связанные с продажами в {{ target_report_year_for_title }} году</em></p>
             <br>
             {% for grouping_isin, event_list in instrument_event_history.items %}
@@ -452,6 +459,7 @@
 
             {# ----- Комиссии, связанные с дивидендами (ИСПРАВЛЕНО)----- #}
             <h4>Комиссии, связанные с дивидендами:</h4>
+            <p><strong>Общая сумма: {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</strong></p>
             {% if dividend_commissions %}
                 <table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">
                     <thead>
@@ -504,10 +512,8 @@
             <br>
             {# ----- Прочие комиссии, проценты и другие расходы/доходы ----- #}
             <h4 style="margin-top: 20px;">Прочие комиссии и расходы/доходы:</h4>
-            {% if total_other_commissions_rub %}
-                 <p><strong>Общая сумма: {{ total_other_commissions_rub|floatformat:2 }} RUB</strong></p>
-                 <p style="color: #666; font-size: 0.9em;">Отрицательные значения = расходы (комиссии, проценты за маржу). Положительные = доходы (кредитные проценты).</p>
-            {% endif %}
+            <p><strong>Общая сумма: {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB</strong></p>
+            <p style="color: #666; font-size: 0.9em;">Отрицательные значения = расходы (комиссии, проценты за маржу). Положительные = доходы (кредитные проценты).</p>
 
             {% if other_commissions %}
                 <table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">
