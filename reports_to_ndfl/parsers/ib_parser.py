@@ -401,7 +401,11 @@ class IBParser(BaseBrokerParser):
                 dt_obj = self._parse_datetime(date_raw)
                 if not dt_obj or quantity == 0:
                     continue
-                pairs = re.findall(r'([A-Z0-9\\.]+)\\(([A-Z0-9]{12})\\)', description or '')
+                # Ищем паттерны: TICKER(ISIN) и (TICKER, описание, ISIN)
+                pairs = re.findall(r'([A-Z0-9\\.]+)\(([A-Z0-9]{12})\)', description or '')
+                # Дополнительно ищем альтернативный формат: (TICKER, ..., ISIN)
+                alt_pairs = re.findall(r'\(([A-Z0-9\\.]+),\s*[^,]+,\s*([A-Z0-9]{12})\)', description or '')
+                pairs.extend(alt_pairs)
                 if len(pairs) < 2:
                     continue
                 old_ticker, old_isin = pairs[0]
