@@ -266,9 +266,9 @@
                             {% elif event_wrapper.display_type == 'option' %}
                                 <tr class="option-delivery-row">
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
-                                    <td class="id-cell">{{ event.trade_id|default:"-" }}</td>
+                                    <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell"><strong>Опцион</strong></td>
-                                    <td>{{ event.instr_nm|default:"-" }}</td>
+                                    <td>{{ event.symbol|default:"-" }}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
@@ -383,9 +383,9 @@
                             {% elif event_wrapper.display_type == 'option' %}
                                 <tr class="option-delivery-row">
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
-                                    <td class="id-cell">{{ event.trade_id|default:"-" }}</td>
+                                    <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell"><strong>Опцион</strong></td>
-                                    <td>{{ event.instr_nm|default:"-" }}</td>
+                                    <td>{{ event.symbol|default:"-" }}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
