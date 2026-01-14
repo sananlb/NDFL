@@ -31,8 +31,8 @@ class IBParser(BaseBrokerParser):
         other_commissions = defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []})
         total_other_commissions_rub = Decimal(0)
 
-        symbol_to_isin = self._parse_instrument_info(sections)
-        trades = self._parse_trades(sections, other_commissions, symbol_to_isin)
+        symbol_to_isin, symbol_to_name = self._parse_instrument_info(sections)
+        trades = self._parse_trades(sections, other_commissions, symbol_to_isin, symbol_to_name)
         dividends = self._parse_dividends(sections)
         conversions = self._parse_corporate_actions(sections)
         self._parse_interest(sections, other_commissions)
@@ -141,27 +141,35 @@ class IBParser(BaseBrokerParser):
         return rate_val
 
     def _parse_instrument_info(self, sections):
-        """Парсит секцию 'Информация о финансовом инструменте' и возвращает словарь symbol -> ISIN."""
+        """Парсит секцию 'Информация о финансовом инструменте' и возвращает словари symbol -> ISIN и symbol -> название."""
         symbol_to_isin = {}
+        symbol_to_name = {}
         info_blocks = sections.get('Информация о финансовом инструменте') or []
         if not info_blocks:
-            return symbol_to_isin
+            return symbol_to_isin, symbol_to_name
 
         for block in info_blocks:
             header_map = self._header_map(block.get('header', []))
             for row in block.get('data', []):
                 symbol = self._get_value(row, header_map, ['Символ', 'Symbol'])
                 isin = self._get_value(row, header_map, ['Идентификатор ценной бумаги', 'Security ID'])
-                if symbol and isin:
-                    symbol_to_isin[symbol.strip()] = isin.strip()
+                description = self._get_value(row, header_map, ['Описание', 'Description'])
+                if symbol:
+                    symbol = symbol.strip()
+                    if isin:
+                        symbol_to_isin[symbol] = isin.strip()
+                    if description:
+                        symbol_to_name[symbol] = description.strip()
 
-        return symbol_to_isin
+        return symbol_to_isin, symbol_to_name
 
-    def _parse_trades(self, sections, other_commissions, symbol_to_isin=None):
+    def _parse_trades(self, sections, other_commissions, symbol_to_isin=None, symbol_to_name=None):
         trades = []
         trades_blocks = sections.get('Сделки') or []
         if symbol_to_isin is None:
             symbol_to_isin = {}
+        if symbol_to_name is None:
+            symbol_to_name = {}
         if not trades_blocks:
             return trades
 
@@ -234,6 +242,7 @@ class IBParser(BaseBrokerParser):
                     'instr_kind': asset_class,
                     'income_code': income_code,
                     'isin': symbol_to_isin.get(symbol, ''),
+                    'instr_nm': symbol_to_name.get(symbol, symbol),
                 }
                 trades.append(trade)
                 trade_index += 1
@@ -578,8 +587,8 @@ class IBParser(BaseBrokerParser):
                 'date': dt_obj.strftime('%Y-%m-%d %H:%M:%S') if dt_obj else '-',
                 'trade_id': trade.get('trade_id'),
                 'operation': trade.get('operation'),
-                'instr_nm': trade.get('symbol') or symbol,
-                'isin': symbol,
+                'instr_nm': trade.get('instr_nm') or symbol,
+                'isin': trade.get('isin', ''),
                 'instr_kind': trade.get('instr_kind'),
                 'income_code': trade.get('income_code', '1530'),
                 'p': price,
