@@ -453,13 +453,22 @@ class IBParser(BaseBrokerParser):
                 continue
 
             # Пропускаем технические смены тикеров (суффиксы .RTS8, .SUB8 и т.д.)
-            # Это не реальные конвертации, если количество акций не меняется
-            # Допускаем погрешность в 0.01 для сравнения
+            # Проверяем два случая:
+            # 1. По паттерну тикеров: новый тикер = старый тикер + суффикс
+            is_technical_rename = False
+            if new_ticker.startswith(old_ticker + '.'):
+                # Новый тикер начинается со старого + точка (например, ADC → ADC.RTS8)
+                is_technical_rename = True
+
+            # 2. По количеству: если количество не меняется
             if old_qty_removed > 0 and new_qty_received > 0:
                 ratio = abs(old_qty_removed - new_qty_received)
                 if ratio < Decimal('0.01'):
-                    # Количество не изменилось - это техническая смена тикера, пропускаем
-                    continue
+                    is_technical_rename = True
+
+            # Пропускаем технические смены тикеров
+            if is_technical_rename:
+                continue
 
             conv_key = (date, old_ticker, new_ticker, old_isin, new_isin)
             conversion_map[conv_key] = {
