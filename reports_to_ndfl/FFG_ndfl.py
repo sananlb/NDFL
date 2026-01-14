@@ -1842,6 +1842,16 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                 pair_to_color[pair_key] = available_colors[color_index % len(available_colors)]
                                 color_index += 1
 
+    # Создаем обратные индексы для быстрого поиска (оптимизация O(n³) -> O(n))
+    buy_id_to_colors = defaultdict(list)  # {buy_id: [color1, color2, ...]}
+    sell_id_to_colors = defaultdict(list)  # {sell_id: [color1, color2, ...]}
+
+    for (buy_id, sell_id), color in pair_to_color.items():
+        if color not in buy_id_to_colors[buy_id]:
+            buy_id_to_colors[buy_id].append(color)
+        if color not in sell_id_to_colors[sell_id]:
+            sell_id_to_colors[sell_id].append(color)
+
     # Шаг 2: Присваиваем цвета покупкам на основе их связей с продажами
     for isin_key, event_list_for_isin in final_instrument_event_history.items():
         for event_wrapper in event_list_for_isin:
@@ -1853,20 +1863,16 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                         original_ids = details['original_trade_ids']
                         colors = []
                         for orig_id in original_ids:
-                            # Ищем все пары (orig_id, *)
-                            for (buy_id, sell_id), color in pair_to_color.items():
-                                if buy_id == orig_id and color not in colors:
+                            # Быстрый поиск через индекс
+                            for color in buy_id_to_colors.get(orig_id, []):
+                                if color not in colors:
                                     colors.append(color)
                         if colors:
                             trade_id_to_colors[details.get('trade_id')] = colors
                     else:
-                        # Обычная покупка
+                        # Обычная покупка - быстрый поиск через индекс
                         buy_id = details.get('trade_id')
-                        colors = []
-                        # Ищем все пары (buy_id, *)
-                        for (pair_buy_id, sell_id), color in pair_to_color.items():
-                            if pair_buy_id == buy_id:
-                                colors.append(color)
+                        colors = buy_id_to_colors.get(buy_id, [])
                         if colors:
                             trade_id_to_colors[buy_id] = colors
 
@@ -1877,11 +1883,8 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                 details = event_wrapper.get('event_details')
                 if details and details.get('operation', '').lower() == 'sell':
                     sell_id = details.get('trade_id')
-                    colors = []
-                    # Ищем все пары (*, sell_id)
-                    for (buy_id, pair_sell_id), color in pair_to_color.items():
-                        if pair_sell_id == sell_id:
-                            colors.append(color)
+                    # Быстрый поиск через индекс
+                    colors = sell_id_to_colors.get(sell_id, [])
                     if colors:
                         trade_id_to_colors[sell_id] = colors
 
