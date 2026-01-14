@@ -456,44 +456,36 @@ class IBParser(BaseBrokerParser):
 
             # Пропускаем технические смены тикеров (суффиксы .RTS8, .SUB8 и т.д.)
             # Проверяем несколько случаев:
-            # 1. По паттерну тикеров: новый тикер = старый тикер + суффикс
             is_technical_rename = False
-            if new_ticker.startswith(old_ticker + '.'):
+
+            # 1. Приоритетная проверка: если полное название инструмента не меняется И количество не меняется - это не конвертация
+            old_company_name = symbol_to_name.get(old_ticker, '').strip()
+            new_company_name = symbol_to_name.get(new_ticker, '').strip()
+            if old_company_name and new_company_name and old_company_name == new_company_name:
+                # Названия инструментов точно совпадают
+                if old_qty_removed > 0 and new_qty_received > 0:
+                    change_ratio = abs(1 - (new_qty_received / old_qty_removed))
+                    if change_ratio < Decimal('0.01'):  # менее 1% изменения количества
+                        is_technical_rename = True
+
+            # 2. По паттерну тикеров: новый тикер = старый тикер + суффикс
+            if not is_technical_rename and new_ticker.startswith(old_ticker + '.'):
                 # Новый тикер начинается со старого + точка (например, ADC → ADC.RTS8)
                 is_technical_rename = True
 
-            # 2. По количеству: если количество не меняется
-            if old_qty_removed > 0 and new_qty_received > 0:
+            # 3. По количеству: если количество не меняется
+            if not is_technical_rename and old_qty_removed > 0 and new_qty_received > 0:
                 ratio = abs(old_qty_removed - new_qty_received)
                 if ratio < Decimal('0.01'):
                     is_technical_rename = True
 
-            # 3. По сходству тикеров: один тикер содержится в другом (например, RAC → RACAU)
-            if old_ticker in new_ticker or new_ticker in old_ticker:
+            # 4. По сходству тикеров: один тикер содержится в другом (например, RAC → RACAU)
+            if not is_technical_rename and (old_ticker in new_ticker or new_ticker in old_ticker):
                 # Проверяем, что количество не сильно меняется
                 if old_qty_removed > 0 and new_qty_received > 0:
                     change_ratio = abs(1 - (new_qty_received / old_qty_removed))
                     if change_ratio < Decimal('0.10'):  # менее 10% изменения
                         is_technical_rename = True
-
-            # 4. По названию компании: если название не меняется и количество не меняется значительно
-            if not is_technical_rename:
-                old_company_name = symbol_to_name.get(old_ticker, '').lower().strip()
-                new_company_name = symbol_to_name.get(new_ticker, '').lower().strip()
-                if old_company_name and new_company_name:
-                    # Сравниваем названия компаний (игнорируя регистр)
-                    # Проверяем точное совпадение или содержание одного в другом
-                    names_similar = (
-                        old_company_name == new_company_name or
-                        old_company_name in new_company_name or
-                        new_company_name in old_company_name
-                    )
-                    if names_similar:
-                        # Если названия похожи и количество не сильно меняется
-                        if old_qty_removed > 0 and new_qty_received > 0:
-                            change_ratio = abs(1 - (new_qty_received / old_qty_removed))
-                            if change_ratio < Decimal('0.10'):  # менее 10% изменения
-                                is_technical_rename = True
 
             # Пропускаем технические смены тикеров
             if is_technical_rename:
