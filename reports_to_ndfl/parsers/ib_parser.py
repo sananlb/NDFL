@@ -290,7 +290,7 @@ class IBParser(BaseBrokerParser):
                 description = self._get_value(row, header_map, ['Описание', 'Description'])
                 amount = self._parse_decimal(self._get_value(row, header_map, ['Сумма', 'Amount']))
                 dt_obj = self._parse_datetime(date_raw)
-                if not dt_obj or dt_obj.year != self.target_year or amount == 0:
+                if not dt_obj or amount == 0:
                     continue
 
                 # Проверяем, связана ли комиссия с дивидендами
