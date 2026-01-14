@@ -324,7 +324,7 @@
                         {% else %}<h3>История для ISIN: {{ grouping_isin }}</h3>{% endif %}
                     {% endwith %}{% endwith %}
                     <table>
-                        <thead><tr><th>Дата</th><!-- <th>ID</th> --><th>Операция</th><th>Инструмент</th><th>Цена</th><th>Кол-во</th><th>Сумма</th><th>Комиссия</th><th>Итого затрат, Руб</th></tr></thead>
+                        <thead><tr><th>Дата</th><!-- <th>ID</th> --><th>Операция</th><th>Инструмент</th><th class="numeric">Цена</th><th class="numeric">Кол-во</th><th class="numeric">Сумма</th><th class="numeric">Комиссия</th><th class="numeric">Итого затрат, Руб</th></tr></thead>
                         <tbody>
                             {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                                 {% if event_wrapper.display_type == 'trade' %}
@@ -412,7 +412,7 @@
                         {% else %}<h3>История для ISIN: {{ grouping_isin }}</h3>{% endif %}
                     {% endwith %}{% endwith %}
                     <table>
-                        <thead><tr><th>Дата</th><!-- <th>ID</th> --><th>Операция</th><th>Инструмент</th><th>Цена</th><th>Кол-во</th><th>Сумма</th><th>Комиссия</th><th>Итого затрат, Руб</th></tr></thead>
+                        <thead><tr><th>Дата</th><!-- <th>ID</th> --><th>Операция</th><th>Инструмент</th><th class="numeric">Цена</th><th class="numeric">Кол-во</th><th class="numeric">Сумма</th><th class="numeric">Комиссия</th><th class="numeric">Итого затрат, Руб</th></tr></thead>
                         <tbody>
                             {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                                 {% if event_wrapper.display_type == 'trade' %}
