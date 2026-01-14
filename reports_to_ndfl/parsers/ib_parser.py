@@ -832,78 +832,89 @@ class IBParser(BaseBrokerParser):
                 visited.add(next_symbol)
 
         # Группируем события по "финальному" символу в цепочке конвертаций
-        # Показываем только события, относящиеся к продажам в целевом году
+        # Показываем всю историю с пометкой релевантности, но фильтруем старые нерелевантные
         filtered_history = defaultdict(list)
+
+        # Граница даты для старых нерелевантных событий (3 года назад от целевого года)
+        cutoff_year = self.target_year - 3
+
         for symbol, events in instrument_events.items():
+            # Проверяем, является ли этот символ релевантным
+            chain_symbols = {symbol}
+            temp_prev = symbol
+            visited_prev = {temp_prev}
+            while temp_prev in conversion_map_new_to_old:
+                prev = conversion_map_new_to_old[temp_prev]
+                if prev == temp_prev or prev in visited_prev:
+                    break
+                chain_symbols.add(prev)
+                temp_prev = prev
+                visited_prev.add(prev)
+
+            temp_next = symbol
+            visited_next = {temp_next}
+            while temp_next in conversion_map_old_to_new:
+                next_sym = conversion_map_old_to_new[temp_next]
+                if next_sym == temp_next or next_sym in visited_next:
+                    break
+                chain_symbols.add(next_sym)
+                temp_next = next_sym
+                visited_next.add(next_sym)
+
+            # Если символ не релевантен, пропускаем все его события
+            if relevant_symbols_for_display.isdisjoint(chain_symbols):
+                continue
+
             for event in events:
                 display_type = event.get('display_type')
                 event_details = event.get('event_details', {})
+                dt_obj = event.get('datetime_obj')
 
-                # Определяем, нужно ли показывать это событие
-                should_include = False
+                # Определяем релевантность события
+                is_relevant = False
 
                 if display_type == 'trade':
                     if event_details.get('operation') == 'sell':
-                        # Показываем продажи в целевом году
-                        dt_obj = event.get('datetime_obj')
+                        # Продажи в целевом году релевантны
                         if dt_obj and dt_obj.year == self.target_year:
-                            should_include = True
+                            is_relevant = True
+                            event_details['is_relevant_for_target_year'] = True
+                        else:
+                            event_details['is_relevant_for_target_year'] = False
                     elif event_details.get('operation') == 'buy':
-                        # Показываем покупки, которые использовались для продаж в целевом году
+                        # Покупки, использованные для продаж в целевом году, релевантны
                         trade_id = event_details.get('trade_id')
                         if trade_id and trade_id in used_buy_ids_for_target_year:
-                            should_include = True
+                            is_relevant = True
+                            event_details['is_relevant_for_target_year'] = True
+                        else:
+                            event_details['is_relevant_for_target_year'] = False
+
                 elif display_type == 'conversion_info':
-                    # Показываем конвертации, если они относятся к инструментам с продажами в целевом году
-                    new_ticker = event_details.get('new_ticker')
-                    old_ticker = event_details.get('old_ticker')
+                    # Конвертации всегда считаем релевантными (они уже отфильтрованы выше)
+                    event_details['is_relevant_for_target_year'] = True
+                    is_relevant = True
 
-                    # Проверяем цепочку конвертаций для нового символа
-                    chain_symbols = {new_ticker, old_ticker}
+                # Фильтруем нерелевантные события старше 3 лет
+                if not is_relevant and dt_obj and dt_obj.year < cutoff_year:
+                    continue
 
-                    # Назад от old_ticker
-                    temp_prev = old_ticker
-                    visited_prev = {temp_prev}
-                    while temp_prev in conversion_map_new_to_old:
-                        prev = conversion_map_new_to_old[temp_prev]
-                        if prev == temp_prev or prev in visited_prev:
-                            break
-                        chain_symbols.add(prev)
-                        temp_prev = prev
-                        visited_prev.add(prev)
+                # Определяем ключ группировки - самый новый символ в цепочке
+                if display_type == 'conversion_info':
+                    event_symbol = event_details.get('new_ticker')
+                else:
+                    event_symbol = symbol
 
-                    # Вперед от new_ticker
-                    temp_next = new_ticker
-                    visited_next = {temp_next}
-                    while temp_next in conversion_map_old_to_new:
-                        next_sym = conversion_map_old_to_new[temp_next]
-                        if next_sym == temp_next or next_sym in visited_next:
-                            break
-                        chain_symbols.add(next_sym)
-                        temp_next = next_sym
-                        visited_next.add(next_sym)
+                grouping_key = event_symbol
+                visited = {grouping_key}
+                while grouping_key in conversion_map_old_to_new:
+                    next_symbol = conversion_map_old_to_new[grouping_key]
+                    if next_symbol == grouping_key or next_symbol in visited:
+                        break
+                    grouping_key = next_symbol
+                    visited.add(next_symbol)
 
-                    # Если хотя бы один символ из цепочки релевантен, показываем конвертацию
-                    if not relevant_symbols_for_display.isdisjoint(chain_symbols):
-                        should_include = True
-
-                if should_include:
-                    # Определяем ключ группировки - самый новый символ в цепочке
-                    if display_type == 'conversion_info':
-                        event_symbol = event_details.get('new_ticker')
-                    else:
-                        event_symbol = symbol
-
-                    grouping_key = event_symbol
-                    visited = {grouping_key}
-                    while grouping_key in conversion_map_old_to_new:
-                        next_symbol = conversion_map_old_to_new[grouping_key]
-                        if next_symbol == grouping_key or next_symbol in visited:
-                            break
-                        grouping_key = next_symbol
-                        visited.add(next_symbol)
-
-                    filtered_history[grouping_key].append(event)
+                filtered_history[grouping_key].append(event)
 
         # Сортируем события в каждой группе по дате
         for symbol in filtered_history:
