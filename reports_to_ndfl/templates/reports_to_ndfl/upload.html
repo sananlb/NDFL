@@ -333,7 +333,7 @@
                                         <!-- <td> {{ event.trade_id|default:"-" }}</td> -->
                                         <td>{% if event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
                                         <td>{{ event.symbol|default:event.isin }}</td>
-                                        <td class="numeric">{{ event.p|default:"-" }}</small></td>
+                                        <td class="numeric">{{ event.p|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="quantity-cell">
                                             <span class="link-indicators">
                                                 {% if event.link_colors and event.is_relevant_for_target_year %}
@@ -421,7 +421,7 @@
                                         <td> {{ event.trade_id|default:"-" }}</td>
                                         <td>{% if event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
                                         <td>{{ event.symbol|default:event.isin }}</td>
-                                        <td class="numeric">{{ event.p|default:"-" }}</small></td>
+                                        <td class="numeric">{{ event.p|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="quantity-cell">
                                             <span class="link-indicators">
                                                 {% if event.link_colors and event.is_relevant_for_target_year %}
