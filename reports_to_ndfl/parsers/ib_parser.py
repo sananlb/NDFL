@@ -832,53 +832,78 @@ class IBParser(BaseBrokerParser):
                 visited.add(next_symbol)
 
         # Группируем события по "финальному" символу в цепочке конвертаций
-        # Показываем ВСЕ события за все годы для релевантных инструментов
+        # Показываем только события, относящиеся к продажам в целевом году
         filtered_history = defaultdict(list)
         for symbol, events in instrument_events.items():
-            # Проверяем, является ли этот символ релевантным (есть продажи в целевом году)
-            # Проходим по цепочке конвертаций для проверки
-            is_relevant = False
-            chain_symbols = {symbol}
+            for event in events:
+                display_type = event.get('display_type')
+                event_details = event.get('event_details', {})
 
-            # Назад по цепочке
-            temp_prev = symbol
-            visited_prev = {temp_prev}
-            while temp_prev in conversion_map_new_to_old:
-                prev = conversion_map_new_to_old[temp_prev]
-                if prev == temp_prev or prev in visited_prev:
-                    break
-                chain_symbols.add(prev)
-                temp_prev = prev
-                visited_prev.add(prev)
+                # Определяем, нужно ли показывать это событие
+                should_include = False
 
-            # Вперед по цепочке
-            temp_next = symbol
-            visited_next = {temp_next}
-            while temp_next in conversion_map_old_to_new:
-                next_sym = conversion_map_old_to_new[temp_next]
-                if next_sym == temp_next or next_sym in visited_next:
-                    break
-                chain_symbols.add(next_sym)
-                temp_next = next_sym
-                visited_next.add(next_sym)
+                if display_type == 'trade':
+                    if event_details.get('operation') == 'sell':
+                        # Показываем продажи в целевом году
+                        dt_obj = event.get('datetime_obj')
+                        if dt_obj and dt_obj.year == self.target_year:
+                            should_include = True
+                    elif event_details.get('operation') == 'buy':
+                        # Показываем покупки, которые использовались для продаж в целевом году
+                        trade_id = event_details.get('trade_id')
+                        if trade_id and trade_id in used_buy_ids_for_target_year:
+                            should_include = True
+                elif display_type == 'conversion_info':
+                    # Показываем конвертации, если они относятся к инструментам с продажами в целевом году
+                    new_ticker = event_details.get('new_ticker')
+                    old_ticker = event_details.get('old_ticker')
 
-            # Если хотя бы один символ из цепочки релевантен, показываем все события
-            if not relevant_symbols_for_display.isdisjoint(chain_symbols):
-                is_relevant = True
+                    # Проверяем цепочку конвертаций для нового символа
+                    chain_symbols = {new_ticker, old_ticker}
 
-            if is_relevant:
-                # Определяем ключ группировки - самый новый символ в цепочке
-                grouping_key = symbol
-                visited = {grouping_key}
-                while grouping_key in conversion_map_old_to_new:
-                    next_symbol = conversion_map_old_to_new[grouping_key]
-                    if next_symbol == grouping_key or next_symbol in visited:
-                        break
-                    grouping_key = next_symbol
-                    visited.add(next_symbol)
+                    # Назад от old_ticker
+                    temp_prev = old_ticker
+                    visited_prev = {temp_prev}
+                    while temp_prev in conversion_map_new_to_old:
+                        prev = conversion_map_new_to_old[temp_prev]
+                        if prev == temp_prev or prev in visited_prev:
+                            break
+                        chain_symbols.add(prev)
+                        temp_prev = prev
+                        visited_prev.add(prev)
 
-                # Добавляем все события этого символа
-                filtered_history[grouping_key].extend(events)
+                    # Вперед от new_ticker
+                    temp_next = new_ticker
+                    visited_next = {temp_next}
+                    while temp_next in conversion_map_old_to_new:
+                        next_sym = conversion_map_old_to_new[temp_next]
+                        if next_sym == temp_next or next_sym in visited_next:
+                            break
+                        chain_symbols.add(next_sym)
+                        temp_next = next_sym
+                        visited_next.add(next_sym)
+
+                    # Если хотя бы один символ из цепочки релевантен, показываем конвертацию
+                    if not relevant_symbols_for_display.isdisjoint(chain_symbols):
+                        should_include = True
+
+                if should_include:
+                    # Определяем ключ группировки - самый новый символ в цепочке
+                    if display_type == 'conversion_info':
+                        event_symbol = event_details.get('new_ticker')
+                    else:
+                        event_symbol = symbol
+
+                    grouping_key = event_symbol
+                    visited = {grouping_key}
+                    while grouping_key in conversion_map_old_to_new:
+                        next_symbol = conversion_map_old_to_new[grouping_key]
+                        if next_symbol == grouping_key or next_symbol in visited:
+                            break
+                        grouping_key = next_symbol
+                        visited.add(next_symbol)
+
+                    filtered_history[grouping_key].append(event)
 
         # Сортируем события в каждой группе по дате
         for symbol in filtered_history:
