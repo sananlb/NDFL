@@ -391,7 +391,8 @@ class IBParser(BaseBrokerParser):
         if not corp_blocks:
             return []
 
-        conversion_map = {}
+        # Группируем все корпоративные действия по дате и первому тикеру
+        temp_conversions = defaultdict(list)
         for block in corp_blocks:
             header_map = self._header_map(block.get('header', []))
             for row in block.get('data', []):
@@ -406,25 +407,62 @@ class IBParser(BaseBrokerParser):
                 # Дополнительно ищем альтернативный формат: (TICKER, ..., ISIN)
                 alt_pairs = re.findall(r'\(([A-Z0-9\\.]+),\s*[^,]+,\s*([A-Z0-9]{12})\)', description or '')
                 pairs.extend(alt_pairs)
-                if len(pairs) < 2:
+                if len(pairs) < 1:
                     continue
+
+                # Первый тикер - это всегда старый инструмент
                 old_ticker, old_isin = pairs[0]
-                new_ticker, new_isin = pairs[-1]
-                key = (dt_obj.date(), old_ticker, new_ticker, old_isin, new_isin)
-                item = conversion_map.setdefault(key, {
-                    'datetime_obj': dt_obj,
-                    'old_ticker': old_ticker,
-                    'new_ticker': new_ticker,
-                    'old_isin': old_isin,
-                    'new_isin': new_isin,
-                    'old_qty_removed': Decimal(0),
-                    'new_qty_received': Decimal(0),
-                    'comment': description,
+                # Группируем по дате и старому тикеру
+                key = (dt_obj.date(), old_ticker, old_isin)
+                temp_conversions[key].append({
+                    'description': description,
+                    'quantity': quantity,
+                    'pairs': pairs,
+                    'dt_obj': dt_obj,
                 })
+
+        # Обрабатываем сгруппированные конвертации
+        conversion_map = {}
+        for key, items in temp_conversions.items():
+            date, old_ticker, old_isin = key
+            old_qty_removed = Decimal(0)
+            new_ticker = None
+            new_isin = None
+            new_qty_received = Decimal(0)
+            dt_obj = None
+            comment = ''
+
+            for item in items:
+                dt_obj = item['dt_obj']
+                quantity = item['quantity']
+                pairs = item['pairs']
+                comment = item['description']
+
                 if quantity < 0:
-                    item['old_qty_removed'] += abs(quantity)
+                    # Списание старых акций
+                    old_qty_removed += abs(quantity)
                 else:
-                    item['new_qty_received'] += quantity
+                    # Получение новых акций
+                    new_qty_received += quantity
+                    # Новый тикер берём из последней пары
+                    if len(pairs) >= 2:
+                        new_ticker, new_isin = pairs[-1]
+
+            # Если не нашли новый тикер, пропускаем
+            if not new_ticker or old_ticker == new_ticker:
+                continue
+
+            conv_key = (date, old_ticker, new_ticker, old_isin, new_isin)
+            conversion_map[conv_key] = {
+                'datetime_obj': dt_obj,
+                'old_ticker': old_ticker,
+                'new_ticker': new_ticker,
+                'old_isin': old_isin,
+                'new_isin': new_isin,
+                'old_qty_removed': old_qty_removed,
+                'new_qty_received': new_qty_received,
+                'comment': comment,
+            }
 
         return list(conversion_map.values())
 
