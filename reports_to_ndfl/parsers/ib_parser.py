@@ -452,6 +452,15 @@ class IBParser(BaseBrokerParser):
             if not new_ticker or old_ticker == new_ticker:
                 continue
 
+            # Пропускаем технические смены тикеров (суффиксы .RTS8, .SUB8 и т.д.)
+            # Это не реальные конвертации, если количество акций не меняется
+            # Допускаем погрешность в 0.01 для сравнения
+            if old_qty_removed > 0 and new_qty_received > 0:
+                ratio = abs(old_qty_removed - new_qty_received)
+                if ratio < Decimal('0.01'):
+                    # Количество не изменилось - это техническая смена тикера, пропускаем
+                    continue
+
             conv_key = (date, old_ticker, new_ticker, old_isin, new_isin)
             conversion_map[conv_key] = {
                 'datetime_obj': dt_obj,
@@ -823,25 +832,43 @@ class IBParser(BaseBrokerParser):
                 visited.add(next_symbol)
 
         # Группируем события по "финальному" символу в цепочке конвертаций
-        # Проверяем релевантность каждого события отдельно (по аналогии с FFG)
+        # Показываем ВСЕ события за все годы для релевантных инструментов
         filtered_history = defaultdict(list)
         for symbol, events in instrument_events.items():
-            for event in events:
-                display_type = event.get('display_type')
+            # Проверяем, является ли этот символ релевантным (есть продажи в целевом году)
+            # Проходим по цепочке конвертаций для проверки
+            is_relevant = False
+            chain_symbols = {symbol}
 
-                # Определяем символ события для проверки релевантности
-                if display_type == 'conversion_info':
-                    # Для конвертации используем new_symbol
-                    event_symbol = event.get('event_details', {}).get('new_ticker')
-                else:
-                    # Для сделок используем symbol события
-                    event_symbol = symbol
+            # Назад по цепочке
+            temp_prev = symbol
+            visited_prev = {temp_prev}
+            while temp_prev in conversion_map_new_to_old:
+                prev = conversion_map_new_to_old[temp_prev]
+                if prev == temp_prev or prev in visited_prev:
+                    break
+                chain_symbols.add(prev)
+                temp_prev = prev
+                visited_prev.add(prev)
 
-                if not event_symbol:
-                    continue
+            # Вперед по цепочке
+            temp_next = symbol
+            visited_next = {temp_next}
+            while temp_next in conversion_map_old_to_new:
+                next_sym = conversion_map_old_to_new[temp_next]
+                if next_sym == temp_next or next_sym in visited_next:
+                    break
+                chain_symbols.add(next_sym)
+                temp_next = next_sym
+                visited_next.add(next_sym)
 
-                # Определяем ключ группировки - идем по цепочке до самого нового символа
-                grouping_key = event_symbol
+            # Если хотя бы один символ из цепочки релевантен, показываем все события
+            if not relevant_symbols_for_display.isdisjoint(chain_symbols):
+                is_relevant = True
+
+            if is_relevant:
+                # Определяем ключ группировки - самый новый символ в цепочке
+                grouping_key = symbol
                 visited = {grouping_key}
                 while grouping_key in conversion_map_old_to_new:
                     next_symbol = conversion_map_old_to_new[grouping_key]
@@ -850,35 +877,8 @@ class IBParser(BaseBrokerParser):
                     grouping_key = next_symbol
                     visited.add(next_symbol)
 
-                # Проверяем, нужно ли отображать это событие
-                # Проходим по всей цепочке конвертаций для event_symbol
-                chain_to_check = {event_symbol}
-
-                # Назад
-                temp_prev = event_symbol
-                visited_prev = {temp_prev}
-                while temp_prev in conversion_map_new_to_old:
-                    prev = conversion_map_new_to_old[temp_prev]
-                    if prev == temp_prev or prev in visited_prev:
-                        break
-                    chain_to_check.add(prev)
-                    temp_prev = prev
-                    visited_prev.add(prev)
-
-                # Вперед
-                temp_next = event_symbol
-                visited_next = {temp_next}
-                while temp_next in conversion_map_old_to_new:
-                    next_sym = conversion_map_old_to_new[temp_next]
-                    if next_sym == temp_next or next_sym in visited_next:
-                        break
-                    chain_to_check.add(next_sym)
-                    temp_next = next_sym
-                    visited_next.add(next_sym)
-
-                # Если есть пересечение с релевантными символами, добавляем событие
-                if not relevant_symbols_for_display.isdisjoint(chain_to_check):
-                    filtered_history[grouping_key].append(event)
+                # Добавляем все события этого символа
+                filtered_history[grouping_key].extend(events)
 
         # Сортируем события в каждой группе по дате
         for symbol in filtered_history:
