@@ -320,7 +320,7 @@
                         {% elif first_event_wrapper.display_type == 'option' %}
                             <h3>Опцион: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }}</h3>
                         {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                            <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Инструмент{% endif %}: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }} (isin: {{ grouping_isin }})</h3>
+                            <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Инструмент{% endif %}: {{ first_event.instr_nm|default_if_none:grouping_isin }}</h3>
                         {% else %}<h3>История для ISIN: {{ grouping_isin }}</h3>{% endif %}
                     {% endwith %}{% endwith %}
                     <table>
@@ -408,7 +408,7 @@
                         {% elif first_event_wrapper.display_type == 'option' %}
                             <h3>Опцион: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }}</h3>
                         {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                            <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Инструмент{% endif %}: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }} (isin: {{ grouping_isin }})</h3>
+                            <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Инструмент{% endif %}: {{ first_event.instr_nm|default_if_none:grouping_isin }}</h3>
                         {% else %}<h3>История для ISIN: {{ grouping_isin }}</h3>{% endif %}
                     {% endwith %}{% endwith %}
                     <table>

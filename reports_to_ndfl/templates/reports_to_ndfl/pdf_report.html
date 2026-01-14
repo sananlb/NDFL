@@ -190,7 +190,7 @@
                     {% elif first_event_wrapper.display_type == 'option' %}
                         <h3>Опцион: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
                     {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                        <h3>{{ first_event.instr_nm|default_if_none:"N/A" }} ({{ grouping_isin }})</h3>
+                        <h3>{{ first_event.instr_nm|default_if_none:grouping_isin }}</h3>
                     {% else %}
                         <h3>{{ grouping_isin }}</h3>
                     {% endif %}
@@ -307,7 +307,7 @@
                     {% elif first_event_wrapper.display_type == 'option' %}
                         <h3>Опцион: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
                     {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                        <h3>{{ first_event.instr_nm|default_if_none:"N/A" }} ({{ grouping_isin }})</h3>
+                        <h3>{{ first_event.instr_nm|default_if_none:grouping_isin }}</h3>
                     {% else %}
                         <h3>{{ grouping_isin }}</h3>
                     {% endif %}
