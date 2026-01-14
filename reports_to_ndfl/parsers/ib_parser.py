@@ -220,14 +220,15 @@ class IBParser(BaseBrokerParser):
                 # Для опционов: используем множитель из секции "Информация о финансовом инструменте"
                 # IB уже учитывает множитель в колонке Proceeds, но не в Price
                 is_option = asset_class in ('Опционы на акции и индексы', 'Stock Options')
-                # Сначала пытаемся получить множитель из инструментальной информации
-                multiplier = symbol_to_multiplier.get(symbol)
-                if multiplier is None:
-                    # Если не нашли в инструментальной информации, используем дефолтные значения
-                    if is_option:
+                if is_option:
+                    # Для опционов пытаемся получить множитель из инструментальной информации
+                    multiplier = symbol_to_multiplier.get(symbol)
+                    if multiplier is None:
+                        # Если не нашли, используем стандартное значение 100
                         multiplier = Decimal(100)
-                    else:
-                        multiplier = Decimal(1)
+                else:
+                    # Для акций множитель всегда 1
+                    multiplier = Decimal(1)
 
                 # Код дохода: 1530 для акций, 1532 для ПФИ (опционов)
                 income_code = '1532' if is_option else '1530'
