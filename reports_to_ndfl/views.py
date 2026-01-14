@@ -321,6 +321,16 @@ def upload_xml_file(request):
         year_to_process = request.session.pop('run_processing_for_year', None)
         broker_type_to_process = request.session.pop('run_processing_broker_type', None)
         if year_to_process is not None:
+            # Важно: сохраняем сессию ДО тяжёлого парсинга.
+            # Если запрос оборвётся по таймауту (nginx/gunicorn), Django может не успеть
+            # записать обновлённую сессию в БД, и флаги "run_processing_*" останутся,
+            # вызывая повторный запуск парсинга при каждом заходе на страницу.
+            try:
+                request.session.save()
+            except Exception:
+                # Фоллбэк: пусть SessionMiddleware попробует сохранить на ответе.
+                request.session.modified = True
+
             context['target_report_year_for_title'] = year_to_process
             if broker_type_to_process:
                 context['selected_broker_type'] = broker_type_to_process
