@@ -34,7 +34,7 @@ class IBParser(BaseBrokerParser):
         symbol_to_isin, symbol_to_name, symbol_to_multiplier = self._parse_instrument_info(sections)
         trades = self._parse_trades(sections, other_commissions, symbol_to_isin, symbol_to_name, symbol_to_multiplier)
         dividends = self._parse_dividends(sections)
-        conversions = self._parse_corporate_actions(sections)
+        conversions = self._parse_corporate_actions(sections, symbol_to_name)
         self._parse_interest(sections, other_commissions)
         self._parse_fees(sections, other_commissions, dividend_commissions)
 
@@ -386,7 +386,9 @@ class IBParser(BaseBrokerParser):
             return None, None
         return match.group(1), match.group(2)
 
-    def _parse_corporate_actions(self, sections):
+    def _parse_corporate_actions(self, sections, symbol_to_name=None):
+        if symbol_to_name is None:
+            symbol_to_name = {}
         corp_blocks = sections.get('Корпоративные действия') or []
         if not corp_blocks:
             return []
@@ -453,7 +455,7 @@ class IBParser(BaseBrokerParser):
                 continue
 
             # Пропускаем технические смены тикеров (суффиксы .RTS8, .SUB8 и т.д.)
-            # Проверяем два случая:
+            # Проверяем несколько случаев:
             # 1. По паттерну тикеров: новый тикер = старый тикер + суффикс
             is_technical_rename = False
             if new_ticker.startswith(old_ticker + '.'):
@@ -465,6 +467,18 @@ class IBParser(BaseBrokerParser):
                 ratio = abs(old_qty_removed - new_qty_received)
                 if ratio < Decimal('0.01'):
                     is_technical_rename = True
+
+            # 3. По названию компании: если название не меняется и количество не меняется значительно
+            old_company_name = symbol_to_name.get(old_ticker, '').lower()
+            new_company_name = symbol_to_name.get(new_ticker, '').lower()
+            if old_company_name and new_company_name:
+                # Сравниваем названия компаний (игнорируя регистр)
+                if old_company_name == new_company_name:
+                    # Если названия совпадают и количество не сильно меняется
+                    if old_qty_removed > 0 and new_qty_received > 0:
+                        change_ratio = abs(1 - (new_qty_received / old_qty_removed))
+                        if change_ratio < Decimal('0.05'):  # менее 5% изменения
+                            is_technical_rename = True
 
             # Пропускаем технические смены тикеров
             if is_technical_rename:
