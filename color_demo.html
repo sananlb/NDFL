@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Демонстрация цветовой маркировки связей</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f7f6; }
+        h2 { color: #333; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #e9ecef;
+            font-weight: bold;
+            color: #495057;
+        }
+        td.numeric { text-align: right; }
+
+        .link-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            margin-right: 4px;
+            vertical-align: middle;
+            border: 1px solid rgba(0,0,0,0.2);
+        }
+
+        .buy-row { background-color: #e8f5e9; }
+        .sell-row { background-color: #ffebee; }
+
+        .explanation {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Демонстрация цветовой индикации связей покупка-продажа</h2>
+
+    <div class="explanation">
+        <strong>Как это работает:</strong>
+        <ul>
+            <li>Цветные квадратики показывают связи между покупками и продажами</li>
+            <li>Одинаковый цвет = акции из этой покупки использованы в этой продаже</li>
+            <li>Несколько квадратиков = сделка связана с несколькими другими сделками</li>
+        </ul>
+    </div>
+
+    <h3>Пример 1: Простая связь (1 покупка → 1 продажа)</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Дата</th>
+                <th>ID</th>
+                <th>Операция</th>
+                <th>Цена</th>
+                <th>Кол-во</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr class="buy-row">
+                <td>2025-05-27</td>
+                <td>540972845</td>
+                <td>Покупка</td>
+                <td class="numeric">13.96 USD</td>
+                <td class="numeric">
+                    <span class="link-indicator" style="background-color: #4FC3F7;"></span>
+                    1
+                </td>
+            </tr>
+            <tr class="sell-row">
+                <td>2025-06-06</td>
+                <td>544230223</td>
+                <td>Продажа</td>
+                <td class="numeric">14.30 USD</td>
+                <td class="numeric">
+                    <span class="link-indicator" style="background-color: #4FC3F7;"></span>
+                    1
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>Пример 2: Одна покупка используется в нескольких продажах</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Дата</th>
+                <th>ID</th>
+                <th>Операция</th>
+                <th>Цена</th>
+                <th>Кол-во</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr class="buy-row">
+                <td>2023-07-03</td>
+                <td>329128714</td>
+                <td>Покупка</td>
+                <td class="numeric">26.74 USD</td>
+                <td class="numeric">
+                    <span class="link-indicator" style="background-color: #4FC3F7;"></span>
+                    210
+                </td>
+            </tr>
+            <tr class="sell-row">
+                <td>2024-05-10</td>
+                <td>395251611</td>
+                <td>Продажа</td>
+                <td class="numeric">27.42 USD</td>
+                <td class="numeric">
+                    <span class="link-indicator" style="background-color: #4FC3F7;"></span>
+                    100
+                </td>
+            </tr>
+            <tr class="sell-row">
+                <td>2024-05-20</td>
+                <td>398057655</td>
+                <td>Продажа</td>
+                <td class="numeric">27.00 USD</td>
+                <td class="numeric">
+                    <span class="link-indicator" style="background-color: #4FC3F7;"></span>
+                    100
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <p><em>Все продажи используют акции из одной покупки → один голубой квадратик</em></p>
+
+    <h3>Пример 3: Сложная связь (2 покупки → 1 продажа)</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Дата</th>
+                <th>ID</th>
+                <th>Операция</th>
+                <th>Цена</th>
+                <th>Кол-во</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr class="buy-row">
+                <td>2025-03-15</td>
+                <td>BUY_001</td>
+                <td>Покупка</td>
+                <td class="numeric">12.50 USD</td>
+                <td class="numeric">
+                    <span class="link-indicator" style="background-color: #66BB6A;"></span>
+                    50
+                </td>
+            </tr>
+            <tr class="buy-row">
+                <td>2025-04-20</td>
+                <td>BUY_002</td>
+                <td>Покупка</td>
+                <td class="numeric">13.00 USD</td>
+                <td class="numeric">
+                    <span class="link-indicator" style="background-color: #AB47BC;"></span>
+                    30
+                </td>
+            </tr>
+            <tr class="sell-row">
+                <td>2025-06-06</td>
+                <td>SELL_001</td>
+                <td>Продажа</td>
+                <td class="numeric">14.30 USD</td>
+                <td class="numeric">
+                    <span class="link-indicator" style="background-color: #66BB6A;"></span>
+                    <span class="link-indicator" style="background-color: #AB47BC;"></span>
+                    80
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>Цветовая палитра</h3>
+    <div style="display: flex; gap: 10px; margin-top: 10px;">
+        <span class="link-indicator" style="background-color: #4FC3F7; width: 30px; height: 30px;"></span>
+        <span class="link-indicator" style="background-color: #FF9800; width: 30px; height: 30px;"></span>
+        <span class="link-indicator" style="background-color: #66BB6A; width: 30px; height: 30px;"></span>
+        <span class="link-indicator" style="background-color: #AB47BC; width: 30px; height: 30px;"></span>
+        <span class="link-indicator" style="background-color: #EF5350; width: 30px; height: 30px;"></span>
+        <span class="link-indicator" style="background-color: #FFEB3B; width: 30px; height: 30px;"></span>
+        <span class="link-indicator" style="background-color: #26C6DA; width: 30px; height: 30px;"></span>
+        <span class="link-indicator" style="background-color: #FF7043; width: 30px; height: 30px;"></span>
+    </div>
+</body>
+</html>

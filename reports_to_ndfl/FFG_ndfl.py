@@ -875,7 +875,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         return {}, [], Decimal(0), Decimal(0), _processing_had_error_local_flag[0], defaultdict(lambda: {'amount_by_currency': defaultdict(Decimal),'amount_rub': Decimal(0), 'details': []}), defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []}), Decimal(0)
 
 
-    trade_detail_tags = ['trade_id', 'date', 'operation', 'instr_nm', 'instr_type', 'instr_kind', 'p', 'curr_c', 'q', 'summ', 'commission', 'issue_nb', 'isin', 'trade_nb']
+    trade_detail_tags = ['trade_id', 'date', 'operation', 'instr_nm', 'instr_type', 'instr_kind', 'p', 'curr_c', 'q', 'summ', 'commission', 'issue_nb', 'isin', 'trade_nb', 'ticker']
 
     # Словарь для хранения опционных сделок: {trade_id: option_purchase_data}
     option_purchases_by_delivery = {}
@@ -1794,7 +1794,8 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     trade_id_to_relevant = {}
     for isin_key, event_list_for_isin in final_instrument_event_history.items():
         for event_wrapper in event_list_for_isin:
-            if event_wrapper.get('display_type') == 'trade':
+            # Добавляем как trades, так и initial_holdings
+            if event_wrapper.get('display_type') in ['trade', 'initial_holding']:
                 details = event_wrapper.get('event_details')
                 if details:
                     trade_id = details.get('trade_id')
@@ -1884,10 +1885,11 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                     if colors:
                         trade_id_to_colors[sell_id] = colors
 
-    # Присваиваем цвета сделкам
+    # Присваиваем цвета сделкам и начальным остаткам
     for isin_key, event_list_for_isin in final_instrument_event_history.items():
         for event_wrapper in event_list_for_isin:
-            if event_wrapper.get('display_type') == 'trade':
+            # Добавляем цвета как для trades, так и для initial_holdings
+            if event_wrapper.get('display_type') in ['trade', 'initial_holding']:
                 details = event_wrapper.get('event_details')
                 if details:
                     trade_id = details.get('trade_id')
