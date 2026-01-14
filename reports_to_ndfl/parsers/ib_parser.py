@@ -767,28 +767,110 @@ class IBParser(BaseBrokerParser):
                         income_code = details.get('income_code', '1530')
                         profit_by_income_code[income_code] = profit_by_income_code.get(income_code, Decimal(0)) + profit
 
-        # Собираем мапу старый_символ -> новый_символ из конвертаций
+        # Собираем карту конвертаций: старый_символ -> новый_символ и новый_символ -> старый_символ
         conversion_map_old_to_new = {}
-        for symbol in symbols_with_sales_in_target_year:
-            for event in instrument_events.get(symbol, []):
-                if event.get('display_type') == 'conversion_info':
-                    old_symbol = event.get('event_details', {}).get('old_ticker')
-                    if old_symbol:
-                        conversion_map_old_to_new[old_symbol] = symbol
+        conversion_map_new_to_old = {}
+        processed_conversion_ids = set()
 
-        # Объединяем историю старых инструментов с новыми
-        for old_symbol, new_symbol in conversion_map_old_to_new.items():
-            if old_symbol in instrument_events:
-                # Добавляем события старого инструмента в новый (они будут отсортированы позже)
-                instrument_events[new_symbol].extend(instrument_events[old_symbol])
-
-        filtered_history = {}
+        # Собираем все конвертации из всех инструментов
+        all_conversion_events = []
         for symbol, events in instrument_events.items():
-            # Показываем историю только если есть продажи в target_year
-            # Старые символы из конвертаций уже объединены с новыми, поэтому показывать их отдельно не нужно
-            if symbol in symbols_with_sales_in_target_year:
-                events.sort(key=lambda x: x.get('datetime_obj') or datetime.min)
-                filtered_history[symbol] = events
+            for event in events:
+                if event.get('display_type') == 'conversion_info':
+                    all_conversion_events.append(event)
+
+        # Сортируем конвертации по дате
+        all_conversion_events.sort(key=lambda x: x.get('datetime_obj') or datetime.min)
+
+        # Строим карту конвертаций
+        for event in all_conversion_events:
+            details = event.get('event_details', {})
+            conv_id = id(event)  # Используем id события как уникальный идентификатор
+            if conv_id not in processed_conversion_ids:
+                old_symbol = details.get('old_ticker')
+                new_symbol = details.get('new_ticker')
+                if old_symbol and new_symbol and old_symbol != new_symbol:
+                    conversion_map_old_to_new[old_symbol] = new_symbol
+                    conversion_map_new_to_old[new_symbol] = old_symbol
+                    processed_conversion_ids.add(conv_id)
+
+        # Определяем релевантные символы для отображения (по аналогии с FFG)
+        # Начинаем с символов, у которых были продажи в целевом году
+        relevant_symbols_for_display = set()
+        for sold_symbol in symbols_with_sales_in_target_year:
+            relevant_symbols_for_display.add(sold_symbol)
+
+            # Идем назад по цепочке конвертаций
+            temp_symbol = sold_symbol
+            visited = {temp_symbol}
+            while temp_symbol in conversion_map_new_to_old:
+                prev_symbol = conversion_map_new_to_old[temp_symbol]
+                if prev_symbol == temp_symbol or prev_symbol in visited:
+                    break
+                relevant_symbols_for_display.add(prev_symbol)
+                temp_symbol = prev_symbol
+                visited.add(prev_symbol)
+
+            # Идем вперед по цепочке конвертаций
+            temp_symbol = sold_symbol
+            visited = {temp_symbol}
+            while temp_symbol in conversion_map_old_to_new:
+                next_symbol = conversion_map_old_to_new[temp_symbol]
+                if next_symbol == temp_symbol or next_symbol in visited:
+                    break
+                relevant_symbols_for_display.add(next_symbol)
+                temp_symbol = next_symbol
+                visited.add(next_symbol)
+
+        # Группируем события по "финальному" символу в цепочке конвертаций
+        filtered_history = defaultdict(list)
+        for symbol, events in instrument_events.items():
+            # Определяем ключ группировки - идем по цепочке до самого нового символа
+            grouping_key = symbol
+            visited = {grouping_key}
+            while grouping_key in conversion_map_old_to_new:
+                next_symbol = conversion_map_old_to_new[grouping_key]
+                if next_symbol == grouping_key or next_symbol in visited:
+                    break
+                grouping_key = next_symbol
+                visited.add(next_symbol)
+
+            # Проверяем, нужно ли отображать события этого символа
+            # Проходим по всей цепочке конвертаций
+            chain_to_check = {symbol}
+
+            # Назад
+            temp_prev = symbol
+            visited_prev = {temp_prev}
+            while temp_prev in conversion_map_new_to_old:
+                prev = conversion_map_new_to_old[temp_prev]
+                if prev == temp_prev or prev in visited_prev:
+                    break
+                chain_to_check.add(prev)
+                temp_prev = prev
+                visited_prev.add(prev)
+
+            # Вперед
+            temp_next = symbol
+            visited_next = {temp_next}
+            while temp_next in conversion_map_old_to_new:
+                next_sym = conversion_map_old_to_new[temp_next]
+                if next_sym == temp_next or next_sym in visited_next:
+                    break
+                chain_to_check.add(next_sym)
+                temp_next = next_sym
+                visited_next.add(next_sym)
+
+            # Если есть пересечение с релевантными символами, добавляем события
+            if not relevant_symbols_for_display.isdisjoint(chain_to_check):
+                filtered_history[grouping_key].extend(events)
+
+        # Сортируем события в каждой группе по дате
+        for symbol in filtered_history:
+            filtered_history[symbol].sort(key=lambda x: x.get('datetime_obj') or datetime.min)
+
+        # Преобразуем defaultdict обратно в обычный dict
+        filtered_history = dict(filtered_history)
 
         return filtered_history, total_sales_profit_rub, profit_by_income_code
 
