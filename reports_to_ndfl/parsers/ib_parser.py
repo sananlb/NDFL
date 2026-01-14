@@ -468,17 +468,32 @@ class IBParser(BaseBrokerParser):
                 if ratio < Decimal('0.01'):
                     is_technical_rename = True
 
-            # 3. По названию компании: если название не меняется и количество не меняется значительно
-            old_company_name = symbol_to_name.get(old_ticker, '').lower()
-            new_company_name = symbol_to_name.get(new_ticker, '').lower()
-            if old_company_name and new_company_name:
-                # Сравниваем названия компаний (игнорируя регистр)
-                if old_company_name == new_company_name:
-                    # Если названия совпадают и количество не сильно меняется
-                    if old_qty_removed > 0 and new_qty_received > 0:
-                        change_ratio = abs(1 - (new_qty_received / old_qty_removed))
-                        if change_ratio < Decimal('0.05'):  # менее 5% изменения
-                            is_technical_rename = True
+            # 3. По сходству тикеров: один тикер содержится в другом (например, RAC → RACAU)
+            if old_ticker in new_ticker or new_ticker in old_ticker:
+                # Проверяем, что количество не сильно меняется
+                if old_qty_removed > 0 and new_qty_received > 0:
+                    change_ratio = abs(1 - (new_qty_received / old_qty_removed))
+                    if change_ratio < Decimal('0.10'):  # менее 10% изменения
+                        is_technical_rename = True
+
+            # 4. По названию компании: если название не меняется и количество не меняется значительно
+            if not is_technical_rename:
+                old_company_name = symbol_to_name.get(old_ticker, '').lower().strip()
+                new_company_name = symbol_to_name.get(new_ticker, '').lower().strip()
+                if old_company_name and new_company_name:
+                    # Сравниваем названия компаний (игнорируя регистр)
+                    # Проверяем точное совпадение или содержание одного в другом
+                    names_similar = (
+                        old_company_name == new_company_name or
+                        old_company_name in new_company_name or
+                        new_company_name in old_company_name
+                    )
+                    if names_similar:
+                        # Если названия похожи и количество не сильно меняется
+                        if old_qty_removed > 0 and new_qty_received > 0:
+                            change_ratio = abs(1 - (new_qty_received / old_qty_removed))
+                            if change_ratio < Decimal('0.10'):  # менее 10% изменения
+                                is_technical_rename = True
 
             # Пропускаем технические смены тикеров
             if is_technical_rename:
@@ -915,6 +930,12 @@ class IBParser(BaseBrokerParser):
 
                 elif display_type == 'conversion_info':
                     # Конвертации всегда считаем релевантными (они уже отфильтрованы выше)
+                    event_details['is_relevant_for_target_year'] = True
+                    is_relevant = True
+
+                elif display_type == 'initial_holding':
+                    # Начальные остатки релевантны, если они в цепочке релевантных символов
+                    # Это значит, что они связаны с конвертацией или с продажами в целевом году
                     event_details['is_relevant_for_target_year'] = True
                     is_relevant = True
 
