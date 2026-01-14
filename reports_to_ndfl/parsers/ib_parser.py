@@ -31,7 +31,8 @@ class IBParser(BaseBrokerParser):
         other_commissions = defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []})
         total_other_commissions_rub = Decimal(0)
 
-        trades = self._parse_trades(sections, other_commissions)
+        symbol_to_isin = self._parse_instrument_info(sections)
+        trades = self._parse_trades(sections, other_commissions, symbol_to_isin)
         dividends = self._parse_dividends(sections)
         conversions = self._parse_corporate_actions(sections)
         self._parse_interest(sections, other_commissions)
@@ -139,9 +140,28 @@ class IBParser(BaseBrokerParser):
         _, _, rate_val = _get_exchange_rate_for_date(self.request, curr, dt_obj.date(), f"для {currency_code}")
         return rate_val
 
-    def _parse_trades(self, sections, other_commissions):
+    def _parse_instrument_info(self, sections):
+        """Парсит секцию 'Информация о финансовом инструменте' и возвращает словарь symbol -> ISIN."""
+        symbol_to_isin = {}
+        info_blocks = sections.get('Информация о финансовом инструменте') or []
+        if not info_blocks:
+            return symbol_to_isin
+
+        for block in info_blocks:
+            header_map = self._header_map(block.get('header', []))
+            for row in block.get('data', []):
+                symbol = self._get_value(row, header_map, ['Символ', 'Symbol'])
+                isin = self._get_value(row, header_map, ['Идентификатор ценной бумаги', 'Security ID'])
+                if symbol and isin:
+                    symbol_to_isin[symbol.strip()] = isin.strip()
+
+        return symbol_to_isin
+
+    def _parse_trades(self, sections, other_commissions, symbol_to_isin=None):
         trades = []
         trades_blocks = sections.get('Сделки') or []
+        if symbol_to_isin is None:
+            symbol_to_isin = {}
         if not trades_blocks:
             return trades
 
@@ -213,6 +233,7 @@ class IBParser(BaseBrokerParser):
                     'cbr_rate': cbr_rate,
                     'instr_kind': asset_class,
                     'income_code': income_code,
+                    'isin': symbol_to_isin.get(symbol, ''),
                 }
                 trades.append(trade)
                 trade_index += 1
