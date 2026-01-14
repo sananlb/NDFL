@@ -194,6 +194,10 @@ class IBParser(BaseBrokerParser):
                 # Код дохода: 1530 для акций, 1532 для ПФИ (опционов)
                 income_code = '1532' if is_option else '1530'
 
+                # Округляем комиссию до сотых для соответствия с отчетом IB
+                commission = abs(self._parse_decimal(commission_raw))
+                commission = commission.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if commission else Decimal(0)
+
                 trade = {
                     'trade_id': trade_id,
                     'datetime_obj': dt_obj,
@@ -204,7 +208,7 @@ class IBParser(BaseBrokerParser):
                     'price': price,
                     'proceeds': abs(proceeds),
                     'multiplier': multiplier,
-                    'commission': abs(self._parse_decimal(commission_raw)),
+                    'commission': commission,
                     'currency': currency,
                     'cbr_rate': cbr_rate,
                     'instr_kind': asset_class,
@@ -384,6 +388,8 @@ class IBParser(BaseBrokerParser):
         datetime_raw = self._get_value(row, header_map, ['Дата/Время', 'Date/Time'])
         commission_raw = self._get_value(row, header_map, ['Комиссия/плата', 'Comm/Fee', 'Комиссия в USD'])
         amount = self._parse_decimal(commission_raw)
+        # Округляем комиссию до сотых
+        amount = amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if amount else Decimal(0)
         dt_obj = self._parse_datetime(datetime_raw)
         if not dt_obj or dt_obj.year != self.target_year or amount == 0:
             return
