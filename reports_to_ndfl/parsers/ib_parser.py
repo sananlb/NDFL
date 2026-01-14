@@ -38,7 +38,7 @@ class IBParser(BaseBrokerParser):
         self._parse_interest(sections, other_commissions)
         self._parse_fees(sections, other_commissions, dividend_commissions)
 
-        instrument_event_history, total_sales_profit, profit_by_income_code = self._build_fifo_history(trades, conversions)
+        instrument_event_history, total_sales_profit, profit_by_income_code = self._build_fifo_history(trades, conversions, symbol_to_isin, symbol_to_name)
 
         total_other_commissions_rub = sum((data.get('total_rub', Decimal(0)) for data in other_commissions.values()), Decimal(0))
         total_dividends_rub = sum((d.get('amount_rub', Decimal(0)) for d in dividends), Decimal(0))
@@ -492,7 +492,7 @@ class IBParser(BaseBrokerParser):
             'comment': description,
         })
 
-    def _build_fifo_history(self, trades, conversions):
+    def _build_fifo_history(self, trades, conversions, symbol_to_isin=None, symbol_to_name=None):
         buy_lots = defaultdict(deque)
         short_sales = defaultdict(deque)
         instrument_events = defaultdict(list)
@@ -500,6 +500,11 @@ class IBParser(BaseBrokerParser):
         symbols_with_sales_in_target_year = set()
         used_buy_ids_for_target_year = set()
         total_sales_profit_rub = Decimal(0)
+
+        if symbol_to_isin is None:
+            symbol_to_isin = {}
+        if symbol_to_name is None:
+            symbol_to_name = {}
 
         conversions_by_date = sorted(conversions, key=lambda x: x.get('datetime_obj') or datetime.min)
         conversion_idx = 0
@@ -509,7 +514,7 @@ class IBParser(BaseBrokerParser):
                 conv = conversions_by_date[conversion_idx]
                 if trade.get('datetime_obj') and conv['datetime_obj'] > trade['datetime_obj']:
                     break
-                self._apply_conversion(conv, buy_lots, instrument_events)
+                self._apply_conversion(conv, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
                 conversion_idx += 1
 
             dt_obj = trade.get('datetime_obj')
@@ -724,15 +729,30 @@ class IBParser(BaseBrokerParser):
                         income_code = details.get('income_code', '1530')
                         profit_by_income_code[income_code] = profit_by_income_code.get(income_code, Decimal(0)) + profit
 
+        # Собираем старые символы из конвертаций для инструментов с продажами
+        old_symbols_from_conversions = set()
+        for symbol in symbols_with_sales_in_target_year:
+            for event in instrument_events.get(symbol, []):
+                if event.get('display_type') == 'conversion_info':
+                    old_symbol = event.get('event_details', {}).get('old_ticker')
+                    if old_symbol:
+                        old_symbols_from_conversions.add(old_symbol)
+
         filtered_history = {}
         for symbol, events in instrument_events.items():
-            if symbol in symbols_with_sales_in_target_year:
+            # Показываем историю если есть продажи в target_year или это старый символ конвертации
+            if symbol in symbols_with_sales_in_target_year or symbol in old_symbols_from_conversions:
                 events.sort(key=lambda x: x.get('datetime_obj') or datetime.min)
                 filtered_history[symbol] = events
 
         return filtered_history, total_sales_profit_rub, profit_by_income_code
 
-    def _apply_conversion(self, conv, buy_lots, instrument_events):
+    def _apply_conversion(self, conv, buy_lots, instrument_events, symbol_to_isin=None, symbol_to_name=None):
+        if symbol_to_isin is None:
+            symbol_to_isin = {}
+        if symbol_to_name is None:
+            symbol_to_name = {}
+
         old_symbol = conv['old_ticker']
         new_symbol = conv['new_ticker']
         old_qty_removed = conv['old_qty_removed']
@@ -768,8 +788,10 @@ class IBParser(BaseBrokerParser):
                 'corp_action_id': None,
                 'old_ticker': old_symbol,
                 'old_isin': conv['old_isin'],
+                'old_instr_nm': symbol_to_name.get(old_symbol, old_symbol),
                 'new_ticker': new_symbol,
                 'new_isin': conv['new_isin'],
+                'new_instr_nm': symbol_to_name.get(new_symbol, new_symbol),
                 'old_quantity_removed': old_qty_removed,
                 'new_quantity_received': new_qty_received,
                 'ratio_comment': conv.get('comment', ''),

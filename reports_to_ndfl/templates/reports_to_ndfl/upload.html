@@ -316,7 +316,8 @@
                 <div class="instrument-specific-block" style="margin-bottom: 20px;">
                     {% with first_event_wrapper=event_list.0 %}{% with first_event=first_event_wrapper.event_details %}
                         {% if first_event_wrapper.display_type == 'conversion_info' %}
-                            <h3>История для: {{ first_event.new_ticker|default:first_event.new_isin }} (результат конвертации из {{ first_event.old_ticker|default:first_event.old_isin }})</h3>
+                            <h3>Акции: {{ first_event.old_instr_nm|default:first_event.old_ticker }} ({{ first_event.old_isin }}) / {{ first_event.old_ticker }}<br>
+                            Акции: {{ first_event.new_instr_nm|default:first_event.new_ticker }} ({{ first_event.new_isin }}) / {{ first_event.new_ticker }}</h3>
                         {% elif first_event_wrapper.display_type == 'option' %}
                             <h3>Опцион: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }}</h3>
                         {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
@@ -350,9 +351,8 @@
                                     </tr>
                                 {% elif event_wrapper.display_type == 'conversion_info' %}
                                     <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
-                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td><!-- <td>Конвертация ID: {{ event.corp_action_id|default:"N/A" }}</td> -->
-                                        <td colspan="2"><strong>Конвертация акций</strong><br>Списано: {{ event.old_quantity_removed|default:'?' }} шт. {{ event.old_ticker|default:event.old_isin }} ({{event.old_isin}})<br>Получено: {{ event.new_quantity_received|default:'?' }} шт. {{ event.new_ticker|default:event.new_isin }} ({{event.new_isin}})</td>
-                                        <td colspan="3"><i>{{ event.ratio_comment|truncatechars:120 }}</i></td><td>-</td><td>-</td>
+                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                        <td colspan="7"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'initial_holding' %}
                                     <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
@@ -404,7 +404,8 @@
                 <div class="instrument-specific-block" style="margin-bottom: 20px;">
                     {% with first_event_wrapper=event_list.0 %}{% with first_event=first_event_wrapper.event_details %}
                         {% if first_event_wrapper.display_type == 'conversion_info' %}
-                            <h3>История для: {{ first_event.new_ticker|default:first_event.new_isin }} (результат конвертации из {{ first_event.old_ticker|default:first_event.old_isin }})</h3>
+                            <h3>Акции: {{ first_event.old_instr_nm|default:first_event.old_ticker }} ({{ first_event.old_isin }}) / {{ first_event.old_ticker }}<br>
+                            Акции: {{ first_event.new_instr_nm|default:first_event.new_ticker }} ({{ first_event.new_isin }}) / {{ first_event.new_ticker }}</h3>
                         {% elif first_event_wrapper.display_type == 'option' %}
                             <h3>Опцион: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }}</h3>
                         {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
@@ -438,9 +439,8 @@
                                     </tr>
                                 {% elif event_wrapper.display_type == 'conversion_info' %}
                                     <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
-                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td><!-- <td>Конвертация ID: {{ event.corp_action_id|default:"N/A" }}</td> -->
-                                        <td colspan="2"><strong>Конвертация акций</strong><br>Списано: {{ event.old_quantity_removed|default:'?' }} шт. {{ event.old_ticker|default:event.old_isin }} ({{event.old_isin}})<br>Получено: {{ event.new_quantity_received|default:'?' }} шт. {{ event.new_ticker|default:event.new_isin }} ({{event.new_isin}})</td>
-                                        <td colspan="3"><i>{{ event.ratio_comment|truncatechars:120 }}</i></td><td>-</td><td>-</td>
+                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                        <td colspan="7"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'initial_holding' %}
                                     <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
