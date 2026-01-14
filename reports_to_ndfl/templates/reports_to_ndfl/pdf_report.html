@@ -190,7 +190,7 @@
                     {% elif first_event_wrapper.display_type == 'option' %}
                         <h3>Опцион: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
                     {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                        <h3>{{ first_event.instr_nm|default_if_none:grouping_isin }}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
+                        <h3>{{ first_event.instr_nm|default_if_none:grouping_isin }}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}{% if first_event.symbol %} / {{ first_event.symbol }}{% endif %}</h3>
                     {% else %}
                         <h3>{{ grouping_isin }}</h3>
                     {% endif %}
@@ -217,7 +217,7 @@
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell">{% if event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
-                                    <td>{{ event.instr_nm|default:event.isin }}</td>
+                                    <td>{{ event.symbol|default:event.isin }}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors and event.is_relevant_for_target_year %}
@@ -247,7 +247,7 @@
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                     <!-- <td>Нач.</td> -->
                                     <td class="op-cell">Зачисл.</td>
-                                    <td>{{ event.instr_nm|default:event.isin }}</td>
+                                    <td>{{ event.symbol|default:event.isin }}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
@@ -307,7 +307,7 @@
                     {% elif first_event_wrapper.display_type == 'option' %}
                         <h3>Опцион: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
                     {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                        <h3>{{ first_event.instr_nm|default_if_none:grouping_isin }}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
+                        <h3>{{ first_event.instr_nm|default_if_none:grouping_isin }}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}{% if first_event.symbol %} / {{ first_event.symbol }}{% endif %}</h3>
                     {% else %}
                         <h3>{{ grouping_isin }}</h3>
                     {% endif %}
@@ -334,7 +334,7 @@
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell">{% if event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
-                                    <td>{{ event.instr_nm|default:event.isin }}</td>
+                                    <td>{{ event.symbol|default:event.isin }}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors and event.is_relevant_for_target_year %}
@@ -364,7 +364,7 @@
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                     <!-- <td>Нач.</td> -->
                                     <td class="op-cell">Зачисл.</td>
-                                    <td>{{ event.instr_nm|default:event.isin }}</td>
+                                    <td>{{ event.symbol|default:event.isin }}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}

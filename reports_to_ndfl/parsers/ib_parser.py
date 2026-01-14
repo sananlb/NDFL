@@ -598,6 +598,7 @@ class IBParser(BaseBrokerParser):
                 'date': dt_obj.strftime('%Y-%m-%d %H:%M:%S') if dt_obj else '-',
                 'trade_id': trade.get('trade_id'),
                 'operation': trade.get('operation'),
+                'symbol': trade.get('symbol'),
                 'instr_nm': trade.get('instr_nm') or symbol,
                 'isin': trade.get('isin', ''),
                 'instr_kind': trade.get('instr_kind'),
