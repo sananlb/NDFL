@@ -1623,7 +1623,40 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         
         if should_display_this_event: final_instrument_event_history[grouping_key_isin].append(event_data_wrapper)
 
-    final_instrument_event_history = {k: v for k, v in final_instrument_event_history.items() if v} 
+    final_instrument_event_history = {k: v for k, v in final_instrument_event_history.items() if v}
+
+    # Фильтруем нерелевантные события старше 3 лет от целевого года
+    cutoff_year = target_report_year - 3
+    filtered_instrument_event_history = {}
+    for isin_key, events in final_instrument_event_history.items():
+        filtered_events = []
+        for event_wrapper in events:
+            details = event_wrapper.get('event_details')
+            if details:
+                # Проверяем релевантность
+                is_relevant = details.get('is_relevant_for_target_year', False)
+
+                # Если событие релевантно, всегда показываем
+                if is_relevant:
+                    filtered_events.append(event_wrapper)
+                else:
+                    # Для нерелевантных проверяем дату
+                    event_datetime = event_wrapper.get('datetime_obj')
+                    if event_datetime:
+                        # Показываем нерелевантные события только если они не старше 3 лет
+                        if event_datetime.year >= cutoff_year:
+                            filtered_events.append(event_wrapper)
+                    else:
+                        # Если дата неизвестна, показываем (на всякий случай)
+                        filtered_events.append(event_wrapper)
+            else:
+                # Если нет деталей, показываем (на всякий случай)
+                filtered_events.append(event_wrapper)
+
+        if filtered_events:
+            filtered_instrument_event_history[isin_key] = filtered_events
+
+    final_instrument_event_history = filtered_instrument_event_history
     all_dividend_events_final_list.sort(key=lambda x: (x.get('date') or date.min, x.get('instrument_name', ''))) 
 
     # Расчет total_sales_profit_rub_for_year
