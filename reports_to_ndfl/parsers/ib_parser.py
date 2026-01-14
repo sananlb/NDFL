@@ -31,8 +31,8 @@ class IBParser(BaseBrokerParser):
         other_commissions = defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []})
         total_other_commissions_rub = Decimal(0)
 
-        symbol_to_isin, symbol_to_name = self._parse_instrument_info(sections)
-        trades = self._parse_trades(sections, other_commissions, symbol_to_isin, symbol_to_name)
+        symbol_to_isin, symbol_to_name, symbol_to_multiplier = self._parse_instrument_info(sections)
+        trades = self._parse_trades(sections, other_commissions, symbol_to_isin, symbol_to_name, symbol_to_multiplier)
         dividends = self._parse_dividends(sections)
         conversions = self._parse_corporate_actions(sections)
         self._parse_interest(sections, other_commissions)
@@ -141,12 +141,13 @@ class IBParser(BaseBrokerParser):
         return rate_val
 
     def _parse_instrument_info(self, sections):
-        """Парсит секцию 'Информация о финансовом инструменте' и возвращает словари symbol -> ISIN и symbol -> название."""
+        """Парсит секцию 'Информация о финансовом инструменте' и возвращает словари symbol -> ISIN, symbol -> название, symbol -> множитель."""
         symbol_to_isin = {}
         symbol_to_name = {}
+        symbol_to_multiplier = {}
         info_blocks = sections.get('Информация о финансовом инструменте') or []
         if not info_blocks:
-            return symbol_to_isin, symbol_to_name
+            return symbol_to_isin, symbol_to_name, symbol_to_multiplier
 
         for block in info_blocks:
             header_map = self._header_map(block.get('header', []))
@@ -154,22 +155,27 @@ class IBParser(BaseBrokerParser):
                 symbol = self._get_value(row, header_map, ['Символ', 'Symbol'])
                 isin = self._get_value(row, header_map, ['Идентификатор ценной бумаги', 'Security ID'])
                 description = self._get_value(row, header_map, ['Описание', 'Description'])
+                multiplier = self._get_value(row, header_map, ['Множитель', 'Multiplier'])
                 if symbol:
                     symbol = symbol.strip()
                     if isin:
                         symbol_to_isin[symbol] = isin.strip()
                     if description:
                         symbol_to_name[symbol] = description.strip()
+                    if multiplier:
+                        symbol_to_multiplier[symbol] = self._parse_decimal(multiplier)
 
-        return symbol_to_isin, symbol_to_name
+        return symbol_to_isin, symbol_to_name, symbol_to_multiplier
 
-    def _parse_trades(self, sections, other_commissions, symbol_to_isin=None, symbol_to_name=None):
+    def _parse_trades(self, sections, other_commissions, symbol_to_isin=None, symbol_to_name=None, symbol_to_multiplier=None):
         trades = []
         trades_blocks = sections.get('Сделки') or []
         if symbol_to_isin is None:
             symbol_to_isin = {}
         if symbol_to_name is None:
             symbol_to_name = {}
+        if symbol_to_multiplier is None:
+            symbol_to_multiplier = {}
         if not trades_blocks:
             return trades
 
@@ -211,13 +217,17 @@ class IBParser(BaseBrokerParser):
                 price = self._parse_decimal(price_raw)
                 proceeds = self._parse_decimal(proceeds_raw)
 
-                # Для опционов: множитель 100 (1 контракт = 100 акций)
+                # Для опционов: используем множитель из секции "Информация о финансовом инструменте"
                 # IB уже учитывает множитель в колонке Proceeds, но не в Price
                 is_option = asset_class in ('Опционы на акции и индексы', 'Stock Options')
-                if is_option:
-                    multiplier = Decimal(100)
-                else:
-                    multiplier = Decimal(1)
+                # Сначала пытаемся получить множитель из инструментальной информации
+                multiplier = symbol_to_multiplier.get(symbol)
+                if multiplier is None:
+                    # Если не нашли в инструментальной информации, используем дефолтные значения
+                    if is_option:
+                        multiplier = Decimal(100)
+                    else:
+                        multiplier = Decimal(1)
 
                 # Код дохода: 1530 для акций, 1532 для ПФИ (опционов)
                 income_code = '1532' if is_option else '1530'
