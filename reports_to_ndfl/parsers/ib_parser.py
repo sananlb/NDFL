@@ -767,19 +767,26 @@ class IBParser(BaseBrokerParser):
                         income_code = details.get('income_code', '1530')
                         profit_by_income_code[income_code] = profit_by_income_code.get(income_code, Decimal(0)) + profit
 
-        # Собираем старые символы из конвертаций для инструментов с продажами
-        old_symbols_from_conversions = set()
+        # Собираем мапу старый_символ -> новый_символ из конвертаций
+        conversion_map_old_to_new = {}
         for symbol in symbols_with_sales_in_target_year:
             for event in instrument_events.get(symbol, []):
                 if event.get('display_type') == 'conversion_info':
                     old_symbol = event.get('event_details', {}).get('old_ticker')
                     if old_symbol:
-                        old_symbols_from_conversions.add(old_symbol)
+                        conversion_map_old_to_new[old_symbol] = symbol
+
+        # Объединяем историю старых инструментов с новыми
+        for old_symbol, new_symbol in conversion_map_old_to_new.items():
+            if old_symbol in instrument_events:
+                # Добавляем события старого инструмента в новый (они будут отсортированы позже)
+                instrument_events[new_symbol].extend(instrument_events[old_symbol])
 
         filtered_history = {}
         for symbol, events in instrument_events.items():
-            # Показываем историю если есть продажи в target_year или это старый символ конвертации
-            if symbol in symbols_with_sales_in_target_year or symbol in old_symbols_from_conversions:
+            # Показываем историю только если есть продажи в target_year
+            # Старые символы из конвертаций уже объединены с новыми, поэтому показывать их отдельно не нужно
+            if symbol in symbols_with_sales_in_target_year:
                 events.sort(key=lambda x: x.get('datetime_obj') or datetime.min)
                 filtered_history[symbol] = events
 
