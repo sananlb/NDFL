@@ -592,6 +592,19 @@ class IBParser(BaseBrokerParser):
         if symbol_to_name is None:
             symbol_to_name = {}
 
+        # Дополняем symbol_to_isin из конвертаций.
+        # Это важно когда тикер сменился (LFC → LFCHY) и старый тикер
+        # отсутствует в секции "Информация о финансовом инструменте" текущего отчёта.
+        for conv in conversions:
+            old_ticker = conv.get('old_ticker', '')
+            old_isin = conv.get('old_isin', '')
+            new_ticker = conv.get('new_ticker', '')
+            new_isin = conv.get('new_isin', '')
+            if old_ticker and old_isin and old_ticker not in symbol_to_isin:
+                symbol_to_isin[old_ticker] = old_isin
+            if new_ticker and new_isin and new_ticker not in symbol_to_isin:
+                symbol_to_isin[new_ticker] = new_isin
+
         conversions_by_date = sorted(conversions, key=lambda x: x.get('datetime_obj') or datetime.min)
         conversion_idx = 0
 
@@ -877,6 +890,22 @@ class IBParser(BaseBrokerParser):
                 relevant_symbols_for_display.add(next_symbol)
                 temp_symbol = next_symbol
                 visited.add(next_symbol)
+
+        # Добавляем символы с тем же ISIN (для случаев смены тикера без корп. действия)
+        # Пример: LFC -> LFCHY (тот же ISIN US16939P1066)
+        isin_to_symbols = defaultdict(set)
+        for sym, isin in symbol_to_isin.items():
+            if isin:
+                isin_to_symbols[isin].add(sym)
+
+        symbols_to_add = set()
+        for rel_symbol in relevant_symbols_for_display:
+            rel_isin = symbol_to_isin.get(rel_symbol)
+            if rel_isin and rel_isin in isin_to_symbols:
+                for same_isin_symbol in isin_to_symbols[rel_isin]:
+                    if same_isin_symbol not in relevant_symbols_for_display:
+                        symbols_to_add.add(same_isin_symbol)
+        relevant_symbols_for_display.update(symbols_to_add)
 
         # Группируем события по "финальному" символу в цепочке конвертаций
         # Показываем всю историю с пометкой релевантности, но фильтруем старые нерелевантные
