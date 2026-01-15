@@ -1030,6 +1030,18 @@ class IBParser(BaseBrokerParser):
         for new_lot in new_lots:
             buy_lots[new_symbol].append(new_lot)
 
+        # Если покупки были до периода отчёта (очередь была пуста или неполная),
+        # создаём лот для оставшихся конвертированных акций с нулевой стоимостью
+        if total_qty_removed < old_qty_removed and new_qty_received > 0:
+            remaining_old = old_qty_removed - total_qty_removed
+            remaining_new = remaining_old * ratio
+            if remaining_new > 0:
+                buy_lots[new_symbol].append({
+                    'q_remaining': remaining_new,
+                    'cost_per_share_rub': Decimal(0),  # Стоимость неизвестна (покупка до периода отчёта)
+                    'source_lot_ids': [],  # Нет связи с покупками в отчёте
+                })
+
         instrument_events[new_symbol].append({
             'display_type': 'conversion_info',
             'datetime_obj': conv['datetime_obj'],

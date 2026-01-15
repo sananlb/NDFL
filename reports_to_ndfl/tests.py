@@ -240,3 +240,54 @@ class IBParserConversionLinksTests(SimpleTestCase):
         self.assertIn("BUY_2", used_buy_ids)
         self.assertIn("BUY_3", used_buy_ids)
         self.assertNotIn("BUY_4", used_buy_ids, "BUY_4 не должен использоваться при FIFO продаже 100 акций")
+
+    def test_conversion_without_prior_buys_creates_virtual_lot(self):
+        """
+        Тест на конвертацию когда покупки были до периода отчёта.
+
+        Сценарий (как с LFCHY.CNV → 2628):
+        - Покупки LFCHY.CNV были до периода отчёта (не в файле)
+        - Конвертация: 1000 LFCHY.CNV → 5000 2628
+        - Продажа: 5000 акций 2628
+        - Система должна создать виртуальный лот для 5000 акций
+        """
+        parser = IBParser(request=None, user=None, target_year=2022)
+
+        trades = [
+            _trade(
+                trade_id="SELL_1",
+                operation="sell",
+                symbol="2628",
+                dt_obj=datetime(2022, 12, 18, 22, 37, 32),
+                quantity="5000",
+                price="12.12",
+                currency="HKD",
+            ),
+        ]
+        conversions = [
+            {
+                "datetime_obj": datetime(2022, 10, 19, 10, 0, 0),
+                "old_ticker": "LFCHY.CNV",
+                "new_ticker": "2628",
+                "old_qty_removed": Decimal("1000"),
+                "new_qty_received": Decimal("5000"),  # 1:5 split
+                "old_isin": "US0000000001",
+                "new_isin": "US0000000002",
+                "comment": "1000 LFCHY.CNV -> 5000 2628",
+            }
+        ]
+
+        history, _total_profit, _profit_by_code = parser._build_fifo_history(trades, conversions)
+
+        self.assertIn("2628", history)
+        trade_events = [
+            e for e in history["2628"] if e.get("display_type") == "trade" and e.get("event_details")
+        ]
+        details_by_id = {e["event_details"].get("trade_id"): e["event_details"] for e in trade_events}
+
+        # Продажа должна существовать и не быть short sale
+        self.assertIn("SELL_1", details_by_id)
+        sell_details = details_by_id["SELL_1"]
+        fifo_cost_str = sell_details.get("fifo_cost_rub_str", "")
+        # Не должно быть "шорт" в строке - акции должны быть из виртуального лота
+        self.assertNotIn("шорт", fifo_cost_str.lower(), "Продажа не должна открывать шорт")
