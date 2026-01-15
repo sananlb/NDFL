@@ -987,6 +987,14 @@ class IBParser(BaseBrokerParser):
         # Например: 1500 old -> 150 new, ratio = 150/1500 = 0.1 (10:1 reverse split)
         ratio = (new_qty_received / old_qty_removed) if old_qty_removed else Decimal(0)
 
+        # IB в CSV использует текущий тикер для всех сделок (даже тех, что были до конвертации).
+        # Если buy_lots[old_symbol] пустой, но buy_lots[new_symbol] не пустой -
+        # значит сделки до конвертации записаны под new_symbol и их нужно перенести.
+        if not buy_lots[old_symbol] and buy_lots[new_symbol]:
+            # Переносим все лоты из new_symbol в old_symbol
+            while buy_lots[new_symbol]:
+                buy_lots[old_symbol].append(buy_lots[new_symbol].popleft())
+
         total_qty_removed = Decimal(0)
         new_lots = []  # Собираем новые лоты - по одному на каждый исходный лот
 

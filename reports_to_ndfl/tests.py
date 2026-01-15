@@ -291,3 +291,76 @@ class IBParserConversionLinksTests(SimpleTestCase):
         fifo_cost_str = sell_details.get("fifo_cost_rub_str", "")
         # Не должно быть "шорт" в строке - акции должны быть из виртуального лота
         self.assertNotIn("шорт", fifo_cost_str.lower(), "Продажа не должна открывать шорт")
+
+    def test_conversion_with_ib_ticker_rename(self):
+        """
+        Тест на конвертацию когда IB переименовал тикеры в CSV.
+
+        IB в CSV использует текущий тикер для всех сделок (даже тех, что были до конвертации).
+        Пример: покупки записаны как CWEB, но конвертация говорит CWEB.OLD -> CWEB.
+        Система должна понять, что покупки CWEB на самом деле относятся к CWEB.OLD.
+        """
+        parser = IBParser(request=None, user=None, target_year=2022)
+
+        trades = [
+            # Покупки до сплита - IB записывает их с текущим тикером CWEB
+            _trade(
+                trade_id="BUY_1",
+                operation="buy",
+                symbol="CWEB",  # IB пишет текущий тикер, хотя покупка была до сплита
+                dt_obj=datetime(2022, 1, 3, 10, 0, 0),
+                quantity="500",
+                price="11.82",
+            ),
+            _trade(
+                trade_id="BUY_2",
+                operation="buy",
+                symbol="CWEB",
+                dt_obj=datetime(2022, 3, 14, 10, 0, 0),
+                quantity="200",
+                price="4.145",
+            ),
+            # Продажа после сплита
+            _trade(
+                trade_id="SELL_1",
+                operation="sell",
+                symbol="CWEB",
+                dt_obj=datetime(2022, 7, 27, 10, 0, 0),
+                quantity="50",
+                price="61",
+            ),
+        ]
+        conversions = [
+            {
+                # Конвертация использует OLD тикер для старых акций
+                "datetime_obj": datetime(2022, 5, 30, 10, 0, 0),
+                "old_ticker": "CWEB.OLD",  # Старый тикер
+                "new_ticker": "CWEB",       # Новый тикер (совпадает с тем, что в сделках)
+                "old_qty_removed": Decimal("700"),  # 500 + 200
+                "new_qty_received": Decimal("70"),  # 10:1 reverse split
+                "old_isin": "US0000000001",
+                "new_isin": "US0000000002",
+                "comment": "700 CWEB.OLD -> 70 CWEB",
+            }
+        ]
+
+        history, _total_profit, _profit_by_code = parser._build_fifo_history(trades, conversions)
+
+        self.assertIn("CWEB", history)
+        trade_events = [
+            e for e in history["CWEB"] if e.get("display_type") == "trade" and e.get("event_details")
+        ]
+        details_by_id = {e["event_details"].get("trade_id"): e["event_details"] for e in trade_events}
+
+        # Покупки должны быть связаны с продажей через конвертацию
+        self.assertIn("SELL_1", details_by_id)
+        sell_details = details_by_id["SELL_1"]
+        used_buy_ids = sell_details.get("used_buy_ids", [])
+
+        # Продажа 50 акций после сплита 10:1
+        # BUY_1: 500 old -> 50 new (полностью)
+        # BUY_2: не нужен
+        self.assertIn("BUY_1", used_buy_ids)
+        # Не должно быть шорта - акции должны найтись через конвертацию
+        fifo_cost_str = sell_details.get("fifo_cost_rub_str", "")
+        self.assertNotIn("шорт", fifo_cost_str.lower(), "Продажа не должна открывать шорт")
