@@ -983,38 +983,52 @@ class IBParser(BaseBrokerParser):
         old_qty_removed = conv['old_qty_removed']
         new_qty_received = conv['new_qty_received']
 
-        total_cost_basis = Decimal(0)
+        # Рассчитываем соотношение конвертации (ratio)
+        # Например: 1500 old -> 150 new, ratio = 150/1500 = 0.1 (10:1 reverse split)
+        ratio = (new_qty_received / old_qty_removed) if old_qty_removed else Decimal(0)
+
         total_qty_removed = Decimal(0)
-        source_lot_ids = []  # Собираем ID оригинальных покупок для цветовой связи
+        new_lots = []  # Собираем новые лоты - по одному на каждый исходный лот
+
         old_queue = buy_lots[old_symbol]
         while old_queue and total_qty_removed < old_qty_removed:
             lot = old_queue.popleft()
             remaining_to_remove = old_qty_removed - total_qty_removed
-            # Собираем source_lot_ids от списываемых лотов
-            if lot.get('lot_id'):
-                if lot['lot_id'] not in source_lot_ids:
-                    source_lot_ids.append(lot['lot_id'])
-            elif lot.get('source_lot_ids'):
-                for sid in lot['source_lot_ids']:
-                    if sid not in source_lot_ids:
-                        source_lot_ids.append(sid)
+
+            # Определяем source_lot_ids для этого лота
+            if lot.get('source_lot_ids'):
+                lot_source_ids = list(lot['source_lot_ids'])  # Копируем список
+            elif lot.get('lot_id'):
+                lot_source_ids = [lot['lot_id']]
+            else:
+                lot_source_ids = []
+
             if lot['q_remaining'] > remaining_to_remove:
-                total_cost_basis += remaining_to_remove * lot['cost_per_share_rub']
+                # Частично используем этот лот
+                qty_used = remaining_to_remove
+                cost_used = remaining_to_remove * lot['cost_per_share_rub']
                 lot['q_remaining'] -= remaining_to_remove
                 total_qty_removed += remaining_to_remove
                 old_queue.appendleft(lot)
-                break
-            total_cost_basis += lot['q_remaining'] * lot['cost_per_share_rub']
-            total_qty_removed += lot['q_remaining']
+            else:
+                # Полностью используем этот лот
+                qty_used = lot['q_remaining']
+                cost_used = lot['q_remaining'] * lot['cost_per_share_rub']
+                total_qty_removed += lot['q_remaining']
 
-        cost_per_new_share = Decimal(0)
-        if new_qty_received:
-            cost_per_new_share = (total_cost_basis / new_qty_received) if new_qty_received else Decimal(0)
-            buy_lots[new_symbol].append({
-                'q_remaining': new_qty_received,
-                'cost_per_share_rub': cost_per_new_share,
-                'source_lot_ids': source_lot_ids,  # Передаём ID оригинальных покупок
-            })
+            # Создаём новый лот с пересчитанным количеством
+            # Каждый старый лот становится отдельным новым лотом с сохранением source_lot_ids
+            new_qty = qty_used * ratio
+            if new_qty > 0:
+                new_lots.append({
+                    'q_remaining': new_qty,
+                    'cost_per_share_rub': (cost_used / new_qty) if new_qty else Decimal(0),
+                    'source_lot_ids': lot_source_ids,
+                })
+
+        # Добавляем все новые лоты в очередь в порядке FIFO
+        for new_lot in new_lots:
+            buy_lots[new_symbol].append(new_lot)
 
         instrument_events[new_symbol].append({
             'display_type': 'conversion_info',
