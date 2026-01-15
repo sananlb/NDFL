@@ -544,7 +544,8 @@
                         <tr>
                             <th>Категория (Тикер)</th>
                             <th>Суммы в валютах</th>
-                            <th class="numeric">Общая сумма (RUB)</th>
+                            <th class="numeric">Сумма (RUB)</th>
+                            <th>Описание</th>
                             <th>Детализация</th>
                         </tr>
                     </thead>
@@ -559,27 +560,40 @@
                                         N/A
                                     {% endfor %}
                                 </td>
-                                <td class="numeric">{{ category_data.amount_rub|floatformat:2 }}</td>
+                                <td class="numeric" style="font-weight: bold;">{{ category_data.amount_rub|floatformat:2 }}</td>
                                 <td>
                                     {% if category_data.details %}
                                         <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
                                             {% for detail in category_data.details %}
                                                 <li>
-                                                    {{ detail.date }}: {{ detail.amount|floatformat:2 }} {{ detail.currency }}
-                                                    (<strong>{{ detail.amount_rub|floatformat:2 }} RUB</strong>)
-                                                    {% if detail.comment %} - <i>{{ detail.comment|truncatechars:70 }}</i>{% endif %}
-                                                    {% comment %} <br><small>(Файл: {{ detail.source_file }}; ID транз.: {{ detail.transaction_id }})</small> {% endcomment %}
+                                                    {{ detail.date }}:
+                                                    {% if detail.comment %}
+                                                        {{ detail.comment|truncatechars:70 }}
+                                                    {% else %}
+                                                        -
+                                                    {% endif %}
                                                 </li>
                                             {% endfor %}
                                         </ul>
                                     {% else %}
-                                        Нет деталей
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if category_data.details %}
+                                        <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
+                                            {% for detail in category_data.details %}
+                                                <li>{{ detail.amount|floatformat:2 }} {{ detail.currency }} ({{ detail.amount_rub|floatformat:2 }} RUB)</li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        -
                                     {% endif %}
                                 </td>
                             </tr>
                         {% empty %}
                             <tr>
-                                <td colspan="4" style="text-align: center;">Прочие расходы и доходы связанные с дивидендами не найдены.</td>
+                                <td colspan="5" style="text-align: center;">Прочие расходы и доходы связанные с дивидендами не найдены.</td>
                             </tr>
                         {% endfor %}
                     </tbody>

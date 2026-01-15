@@ -487,6 +487,10 @@ class IBParser(BaseBrokerParser):
                     if change_ratio < Decimal('0.10'):  # менее 10% изменения
                         is_technical_rename = True
 
+            # 5. Если нет данных о списании старых акций - это техническое переименование тикера
+            if not is_technical_rename and old_qty_removed == 0:
+                is_technical_rename = True
+
             # Пропускаем технические смены тикеров
             if is_technical_rename:
                 continue

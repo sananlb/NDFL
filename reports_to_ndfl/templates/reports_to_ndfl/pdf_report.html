@@ -455,9 +455,11 @@
         <table>
             <thead>
                 <tr>
-                    <th>Категория (Тикер)</th>
-                    <th>Суммы в валютах</th>
-                    <th>Общая сумма (RUB)</th>
+                    <th style="width: 20%;">Категория (Тикер)</th>
+                    <th style="width: 15%;">Суммы в валютах</th>
+                    <th style="width: 15%;">Сумма (RUB)</th>
+                    <th style="width: 30%;">Описание</th>
+                    <th style="width: 20%;">Детализация</th>
                 </tr>
             </thead>
             <tbody>
@@ -471,7 +473,21 @@
                                 N/A
                             {% endfor %}
                         </td>
-                        <td class="numeric">{{ category_data.amount_rub|floatformat:2 }}</td>
+                        <td class="numeric"><strong>{{ category_data.amount_rub|floatformat:2 }}</strong></td>
+                        <td style="font-size: 7pt;">
+                            {% for detail in category_data.details %}
+                                {{ detail.date }}: {{ detail.comment|default:"-" }}{% if not forloop.last %}<br>{% endif %}
+                            {% empty %}
+                                -
+                            {% endfor %}
+                        </td>
+                        <td style="font-size: 7pt;">
+                            {% for detail in category_data.details %}
+                                {{ detail.amount|floatformat:2 }} {{ detail.currency }} ({{ detail.amount_rub|floatformat:2 }} RUB){% if not forloop.last %}<br>{% endif %}
+                            {% empty %}
+                                -
+                            {% endfor %}
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -484,10 +500,11 @@
         <table>
             <thead>
                 <tr>
-                    <th style="width: 25%;">Категория</th>
-                    <th style="width: 17%;">Суммы в валютах</th>
-                    <th style="width: 18%;">Сумма (RUB)</th>
-                    <th style="width: 40%;">Описание</th>
+                    <th style="width: 20%;">Категория</th>
+                    <th style="width: 15%;">Суммы в валютах</th>
+                    <th style="width: 15%;">Сумма (RUB)</th>
+                    <th style="width: 30%;">Описание</th>
+                    <th style="width: 20%;">Детализация</th>
                 </tr>
             </thead>
             <tbody>
@@ -504,7 +521,12 @@
                         <td class="numeric"><strong>{{ data.total_rub|floatformat:2 }}</strong></td>
                         <td style="font-size: 7pt;">
                             {% for event in data.raw_events %}
-                                {{ event.date|date:"Y-m-d" }}: {{ event.description|default:"-" }}{% if not forloop.last %}<br>{% endif %}
+                                {{ event.date|date:"Y-m-d" }}: {% if event.description %}{{ event.description }}{% elif event.source %}{{ event.source }}{% else %}-{% endif %}{% if not forloop.last %}<br>{% endif %}
+                            {% endfor %}
+                        </td>
+                        <td style="font-size: 7pt;">
+                            {% for event in data.raw_events %}
+                                {{ event.amount|floatformat:2 }} {{ event.currency }} ({{ event.amount_rub|floatformat:2 }} RUB){% if not forloop.last %}<br>{% endif %}
                             {% endfor %}
                         </td>
                     </tr>
