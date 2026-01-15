@@ -996,6 +996,26 @@ class IBParser(BaseBrokerParser):
                     grouping_key = next_symbol
                     visited.add(next_symbol)
 
+                # Если не нашли через conversion_map, ищем по ISIN
+                # Пример: LFC имеет тот же ISIN что и LFCHY, но нет конвертации LFC->LFCHY
+                if grouping_key == event_symbol:
+                    event_isin = symbol_to_isin.get(event_symbol)
+                    if event_isin:
+                        # Ищем символ с тем же ISIN, который есть в conversion_map
+                        for same_isin_sym in isin_to_symbols.get(event_isin, []):
+                            if same_isin_sym != event_symbol and same_isin_sym in conversion_map_old_to_new:
+                                # Идём по цепочке от этого символа
+                                temp_key = same_isin_sym
+                                temp_visited = {temp_key}
+                                while temp_key in conversion_map_old_to_new:
+                                    next_sym = conversion_map_old_to_new[temp_key]
+                                    if next_sym == temp_key or next_sym in temp_visited:
+                                        break
+                                    temp_key = next_sym
+                                    temp_visited.add(next_sym)
+                                grouping_key = temp_key
+                                break
+
                 filtered_history[grouping_key].append(event)
 
         # Сортируем события в каждой группе по дате
