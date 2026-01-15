@@ -471,20 +471,26 @@ class IBParser(BaseBrokerParser):
             # 2. По паттерну тикеров: новый тикер = старый тикер + суффикс
             if not is_technical_rename and new_ticker.startswith(old_ticker + '.'):
                 # Новый тикер начинается со старого + точка (например, ADC → ADC.RTS8)
-                is_technical_rename = True
+                # НО если ISIN меняется - это реальная конвертация
+                isin_changed = old_isin and new_isin and old_isin != new_isin
+                if not isin_changed:
+                    is_technical_rename = True
 
-            # 3. По количеству: если количество не меняется
+            # 3. По количеству: если количество не меняется И ISIN не меняется
             if not is_technical_rename and old_qty_removed > 0 and new_qty_received > 0:
                 ratio = abs(old_qty_removed - new_qty_received)
-                if ratio < Decimal('0.01'):
+                # Если ISIN меняется - это реальная конвертация, даже если количество то же
+                isin_changed = old_isin and new_isin and old_isin != new_isin
+                if ratio < Decimal('0.01') and not isin_changed:
                     is_technical_rename = True
 
             # 4. По сходству тикеров: один тикер содержится в другом (например, RAC → RACAU)
             if not is_technical_rename and (old_ticker in new_ticker or new_ticker in old_ticker):
-                # Проверяем, что количество не сильно меняется
+                # Проверяем, что количество не сильно меняется И ISIN не меняется
                 if old_qty_removed > 0 and new_qty_received > 0:
                     change_ratio = abs(1 - (new_qty_received / old_qty_removed))
-                    if change_ratio < Decimal('0.10'):  # менее 10% изменения
+                    isin_changed = old_isin and new_isin and old_isin != new_isin
+                    if change_ratio < Decimal('0.10') and not isin_changed:  # менее 10% изменения
                         is_technical_rename = True
 
             # 5. Если нет данных о списании старых акций - это техническое переименование тикера

@@ -446,3 +446,39 @@ class IBParserConversionLinksTests(SimpleTestCase):
         # Не должно быть шорта
         fifo_cost_str = sell_details.get("fifo_cost_rub_str", "")
         self.assertNotIn("шорт", fifo_cost_str.lower(), "Продажа не должна открывать шорт")
+
+    def test_parse_corporate_actions_not_filters_isin_change_with_suffix(self):
+        """
+        Тест что конвертация с суффиксом тикера (.CNV) НЕ фильтруется если ISIN меняется.
+
+        Сценарий:
+        - LFCHY → LFCHY.CNV (количество 1000 → 1000, но ISIN меняется!)
+        - old_isin: US16939P1066
+        - new_isin: US16939P10CV
+        - Это реальная конвертация, НЕ техническое переименование
+        """
+        parser = IBParser(request=None, user=None, target_year=2022)
+
+        sections = {
+            "Корпоративные действия": [
+                {
+                    "header": ["Дата/Время", "Описание", "Количество"],
+                    "data": [
+                        # Списание LFCHY
+                        ["2022-10-06, 19:45:00", "LFCHY(US16939P1066) CASH and STOCK MERGER (Voluntary) - DIFFERENT ISIN LFCHY.CNV(US16939P10CV)", "-1000"],
+                        # Получение LFCHY.CNV
+                        ["2022-10-06, 19:45:00", "LFCHY(US16939P1066) CASH and STOCK MERGER (Voluntary) - DIFFERENT ISIN LFCHY.CNV(US16939P10CV)", "1000"],
+                    ],
+                }
+            ]
+        }
+
+        conversions = parser._parse_corporate_actions(sections)
+
+        # Должна быть 1 конвертация LFCHY → LFCHY.CNV
+        self.assertEqual(len(conversions), 1, "Конвертация LFCHY → LFCHY.CNV не должна фильтроваться")
+        conv = conversions[0]
+        self.assertEqual(conv["old_ticker"], "LFCHY")
+        self.assertEqual(conv["new_ticker"], "LFCHY.CNV")
+        self.assertEqual(conv["old_isin"], "US16939P1066")
+        self.assertEqual(conv["new_isin"], "US16939P10CV")
