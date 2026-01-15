@@ -223,13 +223,24 @@ def _apply_conversion_on_demand(request, target_isin, operation_date, buy_lots_d
                     pass
                 
                 temp_removed_lots = [] # Временно сохраняем списываемые лоты
+                collected_source_lot_ids = []  # Собираем ID оригинальных покупок для множественных конвертаций
                 while old_shares_queue:
                     buy_lot = old_shares_queue.popleft() # Сразу извлекаем
                     temp_removed_lots.append(buy_lot)
                     # cost_per_share_rub в лоте уже включает комиссию на покупку этого лота
                     total_cost_basis_of_old_shares_rub += decimal_context.multiply(buy_lot['q_remaining'], buy_lot['cost_per_share_rub'])
                     total_qty_of_old_shares_removed += buy_lot['q_remaining']
-                
+                    # Собираем source_lot_ids для отслеживания цепочки конвертаций
+                    if buy_lot.get('source_lot_ids'):
+                        # Лот уже был создан конвертацией - берём его source_lot_ids
+                        for sid in buy_lot['source_lot_ids']:
+                            if sid not in collected_source_lot_ids:
+                                collected_source_lot_ids.append(sid)
+                    elif buy_lot.get('original_trade_id'):
+                        # Обычный лот - берём его original_trade_id
+                        if buy_lot['original_trade_id'] not in collected_source_lot_ids:
+                            collected_source_lot_ids.append(buy_lot['original_trade_id'])
+
                 # ВАЖНО: Если конвертация происходит ДЛЯ target_isin (т.е. бумаги target_isin ПОЛУЧАЮТСЯ),
                 # то мы не должны были ничего списывать из buy_lots_deques[target_isin].
                 # Мы списываем из buy_lots_deques[old_isin].
@@ -243,12 +254,13 @@ def _apply_conversion_on_demand(request, target_isin, operation_date, buy_lots_d
                     # Комиссии самой конвертации здесь не учитываются (они должны быть в other_commissions)
                     if total_qty_of_old_shares_removed > 0 and new_quantity_from_ca > 0: # Убедимся, что не делим на ноль
                         cost_per_new_share_rub = decimal_context.divide(total_cost_basis_of_old_shares_rub, new_quantity_from_ca)
-                    
+
                     new_lot = {
                         'q_remaining': new_quantity_from_ca,
                         'cost_per_share_rub': cost_per_new_share_rub.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP), # Это полная стоимость за 1 шт. новых бумаг
                         'date': conversion_date,
-                        'original_trade_id': f"CONV_IN_{ca_id}"
+                        'original_trade_id': f"CONV_IN_{ca_id}",
+                        'source_lot_ids': collected_source_lot_ids  # Сохраняем ID оригинальных покупок для цепочки конвертаций
                     }
                     
                     # Вставляем новый лот в очередь для target_isin (new_isin) с сохранением хронологии
@@ -441,13 +453,20 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                 # cost_per_share_rub в buy_lot уже включает комиссию НА ПОКУПКУ этого лота
                 cost_for_this_portion = (q_to_take_from_lot * buy_lot['cost_per_share_rub']) 
                 
-                cost_of_shares_from_past_buys_rub += cost_for_this_portion 
+                cost_of_shares_from_past_buys_rub += cost_for_this_portion
                 sell_q_to_cover -= q_to_take_from_lot
                 final_q_covered_by_past_or_conv += q_to_take_from_lot
                 buy_lot['q_remaining'] -= q_to_take_from_lot
-                # Сохраняем ID использованной покупки
-                if 'original_trade_id' in buy_lot:
-                    trade_dict_ref['used_buy_ids'].append(buy_lot['original_trade_id'])
+                # Сохраняем ID использованных покупок (с учётом цепочки конвертаций)
+                if buy_lot.get('source_lot_ids'):
+                    # Лот создан конвертацией - берём ID оригинальных покупок
+                    for sid in buy_lot['source_lot_ids']:
+                        if sid not in trade_dict_ref['used_buy_ids']:
+                            trade_dict_ref['used_buy_ids'].append(sid)
+                elif 'original_trade_id' in buy_lot:
+                    # Обычный лот - берём его собственный ID
+                    if buy_lot['original_trade_id'] not in trade_dict_ref['used_buy_ids']:
+                        trade_dict_ref['used_buy_ids'].append(buy_lot['original_trade_id'])
                 if buy_lot['q_remaining'] <= Decimal('0.000001'): current_buy_queue.popleft()
             
             trade_dict_ref['fifo_cost_rub_decimal'] = (cost_of_shares_from_past_buys_rub + commission_sell_rub + option_cost_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -476,9 +495,16 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                             sell_q_to_cover -= q_to_take_conv
                             final_q_covered_by_past_or_conv += q_to_take_conv
                             buy_lot_conv['q_remaining'] -= q_to_take_conv
-                            # Сохраняем ID использованной покупки из конвертации
-                            if 'original_trade_id' in buy_lot_conv:
-                                trade_dict_ref['used_buy_ids'].append(buy_lot_conv['original_trade_id'])
+                            # Сохраняем ID использованных покупок из конвертации (с учётом цепочки конвертаций)
+                            if buy_lot_conv.get('source_lot_ids'):
+                                # Лот создан конвертацией - берём ID оригинальных покупок
+                                for sid in buy_lot_conv['source_lot_ids']:
+                                    if sid not in trade_dict_ref['used_buy_ids']:
+                                        trade_dict_ref['used_buy_ids'].append(sid)
+                            elif 'original_trade_id' in buy_lot_conv:
+                                # Обычный лот - берём его собственный ID
+                                if buy_lot_conv['original_trade_id'] not in trade_dict_ref['used_buy_ids']:
+                                    trade_dict_ref['used_buy_ids'].append(buy_lot_conv['original_trade_id'])
                             if buy_lot_conv['q_remaining'] <= Decimal('0.000001'): current_buy_queue_after_conv.popleft()
                         
                         cost_of_shares_from_past_buys_rub += cost_from_conversion_lots_rub_pass # Добавляем к общей стоимости акций
