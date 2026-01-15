@@ -558,16 +558,15 @@ class IBParser(BaseBrokerParser):
         """Добавляет запись в dividend_commissions.
 
         Структура совместима с FFG: amount_by_currency, amount_rub, details.
+        Сохраняем оригинальный знак: отрицательные = расходы.
         """
         cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
-        # Комиссии приходят отрицательными, берём abs для отображения
-        actual_amount = abs(amount)
-        amount_rub = (actual_amount * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
-        dividend_commissions[category]['amount_by_currency'][currency] += actual_amount
+        amount_rub = (amount * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
+        dividend_commissions[category]['amount_by_currency'][currency] += amount
         dividend_commissions[category]['amount_rub'] += amount_rub
         dividend_commissions[category]['details'].append({
             'date': dt_obj.strftime('%d.%m.%Y'),
-            'amount': actual_amount,
+            'amount': amount,
             'currency': currency,
             'amount_rub': amount_rub,
             'comment': description,
