@@ -364,3 +364,85 @@ class IBParserConversionLinksTests(SimpleTestCase):
         # Не должно быть шорта - акции должны найтись через конвертацию
         fifo_cost_str = sell_details.get("fifo_cost_rub_str", "")
         self.assertNotIn("шорт", fifo_cost_str.lower(), "Продажа не должна открывать шорт")
+
+    def test_conversion_finds_lots_by_isin_when_ticker_changed(self):
+        """
+        Тест на поиск лотов по ISIN когда тикер сменился без корп. действия.
+
+        Сценарий (как с LFC → LFCHY):
+        - Покупка под тикером LFC (ISIN US16939P1066)
+        - Тикер сменился на LFCHY (тот же ISIN) - нет корп. действия в CSV
+        - Конвертация LFCHY → 2628
+        - Система должна найти лоты LFC по ISIN и связать с продажей 2628
+        """
+        parser = IBParser(request=None, user=None, target_year=2022)
+
+        trades = [
+            _trade(
+                trade_id="BUY_LFC",
+                operation="buy",
+                symbol="LFC",  # Старый тикер
+                dt_obj=datetime(2021, 6, 1, 10, 0, 0),
+                quantity="1000",
+                price="10.58",
+            ),
+            _trade(
+                trade_id="SELL_2628",
+                operation="sell",
+                symbol="2628",
+                dt_obj=datetime(2022, 12, 18, 22, 37, 32),
+                quantity="5000",
+                price="12.12",
+                currency="HKD",
+            ),
+        ]
+        conversions = [
+            {
+                "datetime_obj": datetime(2022, 10, 6, 19, 45, 0),
+                "old_ticker": "LFCHY",  # Новый тикер (тот же ISIN что и LFC)
+                "new_ticker": "LFCHY.CNV",
+                "old_qty_removed": Decimal("1000"),
+                "new_qty_received": Decimal("1000"),
+                "old_isin": "US16939P1066",  # Тот же ISIN что и у LFC!
+                "new_isin": "US16939P10CV",
+                "comment": "LFCHY -> LFCHY.CNV",
+            },
+            {
+                "datetime_obj": datetime(2022, 10, 19, 20, 25, 0),
+                "old_ticker": "LFCHY.CNV",
+                "new_ticker": "2628",
+                "old_qty_removed": Decimal("1000"),
+                "new_qty_received": Decimal("5000"),  # 1:5
+                "old_isin": "US16939P10CV",
+                "new_isin": "CNE1000002L3",
+                "comment": "LFCHY.CNV -> 2628 5:1",
+            },
+        ]
+
+        # Важно: передаём symbol_to_isin чтобы парсер знал что LFC и LFCHY имеют одинаковый ISIN
+        symbol_to_isin = {
+            "LFC": "US16939P1066",
+            "LFCHY": "US16939P1066",  # Тот же ISIN!
+            "LFCHY.CNV": "US16939P10CV",
+            "2628": "CNE1000002L3",
+        }
+
+        history, _total_profit, _profit_by_code = parser._build_fifo_history(
+            trades, conversions, symbol_to_isin=symbol_to_isin
+        )
+
+        self.assertIn("2628", history)
+        trade_events = [
+            e for e in history["2628"] if e.get("display_type") == "trade" and e.get("event_details")
+        ]
+        details_by_id = {e["event_details"].get("trade_id"): e["event_details"] for e in trade_events}
+
+        self.assertIn("SELL_2628", details_by_id)
+        sell_details = details_by_id["SELL_2628"]
+        used_buy_ids = sell_details.get("used_buy_ids", [])
+
+        # Продажа должна быть связана с покупкой LFC через ISIN
+        self.assertIn("BUY_LFC", used_buy_ids, "Покупка LFC должна быть связана с продажей 2628 по ISIN")
+        # Не должно быть шорта
+        fifo_cost_str = sell_details.get("fifo_cost_rub_str", "")
+        self.assertNotIn("шорт", fifo_cost_str.lower(), "Продажа не должна открывать шорт")

@@ -995,6 +995,19 @@ class IBParser(BaseBrokerParser):
             while buy_lots[new_symbol]:
                 buy_lots[old_symbol].append(buy_lots[new_symbol].popleft())
 
+        # Если buy_lots[old_symbol] всё ещё пустой, ищем по ISIN.
+        # Бывает что тикер сменился (LFC -> LFCHY) без явного корп. действия в CSV.
+        if not buy_lots[old_symbol]:
+            old_isin = conv.get('old_isin', '')
+            if old_isin:
+                # Ищем символ с тем же ISIN
+                for sym, isin in symbol_to_isin.items():
+                    if isin == old_isin and sym != old_symbol and buy_lots[sym]:
+                        # Нашли символ с тем же ISIN — переносим лоты
+                        while buy_lots[sym]:
+                            buy_lots[old_symbol].append(buy_lots[sym].popleft())
+                        break
+
         total_qty_removed = Decimal(0)
         new_lots = []  # Собираем новые лоты - по одному на каждый исходный лот
 
