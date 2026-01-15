@@ -660,9 +660,17 @@ class IBParser(BaseBrokerParser):
                     fifo_cost_rub += (take * lot['cost_per_share_rub'])
                     lot['q_remaining'] -= take
                     remaining -= take
-                    lot_id = lot.get('lot_id')
-                    if lot_id and lot_id not in used_buy_ids:
-                        used_buy_ids.append(lot_id)
+                    # Получаем ID оригинальных покупок (из конвертации или напрямую)
+                    if lot.get('source_lot_ids'):
+                        # Лот создан конвертацией - берём ID оригинальных покупок
+                        for sid in lot['source_lot_ids']:
+                            if sid not in used_buy_ids:
+                                used_buy_ids.append(sid)
+                    else:
+                        # Обычный лот - берём его собственный lot_id
+                        lot_id = lot.get('lot_id')
+                        if lot_id and lot_id not in used_buy_ids:
+                            used_buy_ids.append(lot_id)
                     if lot['q_remaining'] <= 0:
                         buy_lots[symbol].popleft()
                 if remaining > 0:
@@ -977,10 +985,19 @@ class IBParser(BaseBrokerParser):
 
         total_cost_basis = Decimal(0)
         total_qty_removed = Decimal(0)
+        source_lot_ids = []  # Собираем ID оригинальных покупок для цветовой связи
         old_queue = buy_lots[old_symbol]
         while old_queue and total_qty_removed < old_qty_removed:
             lot = old_queue.popleft()
             remaining_to_remove = old_qty_removed - total_qty_removed
+            # Собираем source_lot_ids от списываемых лотов
+            if lot.get('lot_id'):
+                if lot['lot_id'] not in source_lot_ids:
+                    source_lot_ids.append(lot['lot_id'])
+            elif lot.get('source_lot_ids'):
+                for sid in lot['source_lot_ids']:
+                    if sid not in source_lot_ids:
+                        source_lot_ids.append(sid)
             if lot['q_remaining'] > remaining_to_remove:
                 total_cost_basis += remaining_to_remove * lot['cost_per_share_rub']
                 lot['q_remaining'] -= remaining_to_remove
@@ -996,6 +1013,7 @@ class IBParser(BaseBrokerParser):
             buy_lots[new_symbol].append({
                 'q_remaining': new_qty_received,
                 'cost_per_share_rub': cost_per_new_share,
+                'source_lot_ids': source_lot_ids,  # Передаём ID оригинальных покупок
             })
 
         instrument_events[new_symbol].append({
