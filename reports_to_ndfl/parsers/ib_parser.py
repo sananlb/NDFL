@@ -191,7 +191,7 @@ class IBParser(BaseBrokerParser):
                 if asset_class and asset_class in ('Forex',):
                     self._record_commission_from_trade(row, header_map, other_commissions)
                     continue
-                if asset_class and asset_class not in ('Акции', 'Stocks', 'Опционы на акции и индексы', 'Stock Options'):
+                if asset_class and asset_class not in ('Акции', 'Stocks', 'Опционы на акции и индексы', 'Stock Options', 'Варранты', 'Warrants'):
                     continue
 
                 currency = self._get_value(row, header_map, ['Валюта', 'Currency']).upper()
@@ -199,6 +199,8 @@ class IBParser(BaseBrokerParser):
                 group_symbol = symbol
                 if asset_class in ('Опционы на акции и индексы', 'Stock Options'):
                     group_symbol = f"OPTION_{symbol}"
+                elif asset_class in ('Варранты', 'Warrants'):
+                    group_symbol = f"WARRANT_{symbol}"
                 datetime_raw = self._get_value(row, header_map, ['Дата/Время', 'Date/Time'])
                 quantity_raw = self._get_value(row, header_map, ['Количество', 'Quantity'])
                 price_raw = self._get_value(row, header_map, ['Цена транзакции', 'T. Price', 'Trade Price'])
@@ -217,21 +219,26 @@ class IBParser(BaseBrokerParser):
                 price = self._parse_decimal(price_raw)
                 proceeds = self._parse_decimal(proceeds_raw)
 
-                # Для опционов: используем множитель из секции "Информация о финансовом инструменте"
+                # Для опционов и варрантов: используем множитель из секции "Информация о финансовом инструменте"
                 # IB уже учитывает множитель в колонке Proceeds, но не в Price
                 is_option = asset_class in ('Опционы на акции и индексы', 'Stock Options')
+                is_warrant = asset_class in ('Варранты', 'Warrants')
+                is_pfi = is_option or is_warrant  # ПФИ = производные финансовые инструменты
                 if is_option:
                     # Для опционов пытаемся получить множитель из инструментальной информации
                     multiplier = symbol_to_multiplier.get(symbol)
                     if multiplier is None:
                         # Если не нашли, используем стандартное значение 100
                         multiplier = Decimal(100)
+                elif is_warrant:
+                    # Для варрантов берём множитель из инструментальной информации (обычно 1)
+                    multiplier = symbol_to_multiplier.get(symbol) or Decimal(1)
                 else:
                     # Для акций множитель всегда 1
                     multiplier = Decimal(1)
 
-                # Код дохода: 1530 для акций, 1532 для ПФИ (опционов)
-                income_code = '1532' if is_option else '1530'
+                # Код дохода: 1530 для акций, 1532 для ПФИ (опционов, варрантов)
+                income_code = '1532' if is_pfi else '1530'
 
                 # Округляем комиссию до сотых для соответствия с отчетом IB
                 commission = abs(self._parse_decimal(commission_raw))
@@ -266,7 +273,8 @@ class IBParser(BaseBrokerParser):
         dividends_blocks = sections.get('Дивиденды') or []
         tax_blocks = sections.get('Удерживаемый налог') or []
 
-        tax_by_key = defaultdict(Decimal)
+        tax_by_match_key = defaultdict(Decimal)
+        tax_by_fallback_key = defaultdict(Decimal)
         for block in tax_blocks:
             header_map_tax = self._header_map(block.get('header', []))
             for row in block.get('data', []):
@@ -276,14 +284,18 @@ class IBParser(BaseBrokerParser):
                 amount = self._parse_decimal(self._get_value(row, header_map_tax, ['Сумма', 'Amount']))
                 ticker, _ = self._extract_symbol_isin(desc)
                 dt_obj = self._parse_datetime(date_raw)
-                if not dt_obj or not ticker:
+                if not dt_obj or dt_obj.year != self.target_year or not ticker or amount == 0:
                     continue
-                key = (dt_obj.date(), ticker, currency)
-                tax_by_key[key] += amount
+                normalized_desc = self._normalize_dividend_description(desc)
+                match_key = self._make_dividend_match_key(dt_obj.date(), currency, normalized_desc)
+                if match_key:
+                    tax_by_match_key[match_key] += amount
+                tax_by_fallback_key[(dt_obj.date(), ticker, currency)] += amount
 
         if not dividends_blocks:
             return dividends
 
+        dividend_fallback_key_counts = defaultdict(int)
         for block in dividends_blocks:
             header_map = self._header_map(block.get('header', []))
             for row in block.get('data', []):
@@ -299,7 +311,11 @@ class IBParser(BaseBrokerParser):
                 if not ticker:
                     continue
 
-                tax_amount = tax_by_key.get((dt_obj.date(), ticker, currency), Decimal(0))
+                dividend_key = self._normalize_dividend_description(desc)
+                dividend_match_key = self._make_dividend_match_key(dt_obj.date(), currency, dividend_key)
+                tax_amount = tax_by_match_key.get(dividend_match_key, Decimal(0)) if dividend_match_key else Decimal(0)
+                fallback_key = (dt_obj.date(), ticker, currency)
+                dividend_fallback_key_counts[fallback_key] += 1
                 cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
                 amount_rub = (amount * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
 
@@ -312,7 +328,20 @@ class IBParser(BaseBrokerParser):
                     'currency': currency,
                     'cbr_rate_str': f"{cbr_rate:.4f}" if cbr_rate else '-',
                     'amount_rub': amount_rub,
+                    'dividend_key': dividend_key,  # Ключ для связывания с комиссией
+                    'dividend_match_key': dividend_match_key,  # Ключ для точного сопоставления (дата+валюта+описание)
+                    '_dividend_tax_fallback_key': fallback_key,
                 })
+
+        # Fallback: если точного совпадения по описанию нет, то берём налог по (дата, тикер, валюта)
+        # только когда на эту дату ровно одна строка дивиденда для тикера (иначе будет дублирование).
+        for div in dividends:
+            if div.get('tax_amount'):
+                continue
+            fallback_key = div.get('_dividend_tax_fallback_key')
+            if fallback_key and dividend_fallback_key_counts.get(fallback_key, 0) == 1:
+                div['tax_amount'] = tax_by_fallback_key.get(fallback_key, Decimal(0))
+            div.pop('_dividend_tax_fallback_key', None)
 
         dividends.sort(key=lambda x: (x.get('date') or date.min, x.get('ticker') or ''))
         return dividends
@@ -335,7 +364,7 @@ class IBParser(BaseBrokerParser):
                 description = self._get_value(row, header_map, ['Описание', 'Description'])
                 amount = self._parse_decimal(self._get_value(row, header_map, ['Сумма', 'Amount']))
                 dt_obj = self._parse_datetime(date_raw)
-                if not dt_obj or amount == 0:
+                if not dt_obj or dt_obj.year != self.target_year or amount == 0:
                     continue
 
                 # Проверяем, связана ли комиссия с дивидендами
@@ -344,10 +373,22 @@ class IBParser(BaseBrokerParser):
                 is_dividend_related = 'дивиденд' in desc_lower or 'dividend' in desc_lower
 
                 if is_dividend_related:
-                    # Извлекаем тикер из описания для категории
-                    ticker = self._extract_ticker_from_fee_description(description)
+                    # Извлекаем тикер и ISIN из описания для категории
+                    ticker, isin = self._extract_symbol_isin(description)
                     category = f"Комиссия по дивидендам ({ticker})" if ticker else "Комиссии по дивидендам"
-                    self._add_dividend_commission(dividend_commissions, category, amount, currency, dt_obj, description)
+                    dividend_key = self._normalize_dividend_description(description)
+                    dividend_match_key = self._make_dividend_match_key(dt_obj.date(), currency, dividend_key)
+                    self._add_dividend_commission(
+                        dividend_commissions,
+                        category,
+                        amount,
+                        currency,
+                        dt_obj,
+                        description,
+                        isin,
+                        dividend_key,
+                        dividend_match_key,
+                    )
                 else:
                     self._add_other_commission(other_commissions, subtitle, amount, currency, dt_obj, description)
 
@@ -381,10 +422,22 @@ class IBParser(BaseBrokerParser):
     def _extract_symbol_isin(self, description):
         if not description:
             return None, None
-        match = re.match(r'^([A-Z0-9.]+)\(([A-Z0-9]{12})\)', description.strip())
+        match = re.match(r'^([A-Z0-9.\-]+)\s*\(([A-Z0-9]{12})\)', description.strip())
         if not match:
             return None, None
         return match.group(1), match.group(2)
+
+    def _make_dividend_match_key(self, dt_value, currency, normalized_description):
+        if not dt_value or not normalized_description:
+            return None
+        currency_code = (currency or '').upper().strip()
+        if not currency_code:
+            return None
+        if isinstance(dt_value, datetime):
+            dt_value = dt_value.date()
+        if not isinstance(dt_value, date):
+            return None
+        return f"{dt_value.isoformat()}|{currency_code}|{normalized_description}"
 
     def _parse_corporate_actions(self, sections, symbol_to_name=None):
         if symbol_to_name is None:
@@ -560,22 +613,68 @@ class IBParser(BaseBrokerParser):
             return match.group(1)
         return None
 
-    def _add_dividend_commission(self, dividend_commissions, category, amount, currency, dt_obj, description):
+    def _normalize_dividend_description(self, description):
+        """Нормализует описание дивидендного события для связывания (дивиденд/налог/FEE).
+
+        Убирает окончания:
+        - " - FEE" (для комиссий)
+        - " - XX Налог"/" - XX Tax" (для удержанного налога)
+        - завершающие скобки "(...)" (тип/классификация выплаты)
+
+        Примеры:
+        - "GLTR(US37949E2046) Наличный дивиденд USD 0.61982 на акцию - FEE"
+          -> "GLTR(US37949E2046) Наличный дивиденд USD 0.61982 на акцию"
+        - "GLTR(US37949E2046) Наличный дивиденд USD 0.61982 на акцию (Обыкновенный дивиденд)"
+          -> "GLTR(US37949E2046) Наличный дивиденд USD 0.61982 на акцию"
+        - "FMC(US3024913036) Выплата в качестве дивиденда - US Налог"
+          -> "FMC(US3024913036) Выплата в качестве дивиденда"
+        """
+        if not description:
+            return None
+        desc = description.strip()
+        # Убираем " - FEE"
+        desc = re.sub(r'\s*-\s*FEE\s*$', '', desc, flags=re.IGNORECASE)
+        # Убираем " - XX Налог" / " - XX Tax" в конце
+        desc = re.sub(r'\s*-\s*[A-Z]{2}\s*(налог|tax)\s*$', '', desc, flags=re.IGNORECASE)
+        # Убираем завершающие скобки (тип выплаты): "(...)" в конце (в т.ч. несколько подряд)
+        desc = re.sub(r'(?:\s*\([^)]*\)\s*)+$', '', desc)
+        return desc.strip() if desc else None
+
+    def _add_dividend_commission(
+        self,
+        dividend_commissions,
+        category,
+        amount,
+        currency,
+        dt_obj,
+        description,
+        isin=None,
+        dividend_key=None,
+        dividend_match_key=None,
+    ):
         """Добавляет запись в dividend_commissions.
 
         Структура совместима с FFG: amount_by_currency, amount_rub, details.
         Сохраняем оригинальный знак: отрицательные = расходы.
+        dividend_key - нормализованное описание для связывания с дивидендом.
         """
         cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
         amount_rub = (amount * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
         dividend_commissions[category]['amount_by_currency'][currency] += amount
         dividend_commissions[category]['amount_rub'] += amount_rub
+        # Сохраняем ISIN на уровне категории для поиска по ISIN
+        if isin and 'isin' not in dividend_commissions[category]:
+            dividend_commissions[category]['isin'] = isin
         dividend_commissions[category]['details'].append({
             'date': dt_obj.strftime('%d.%m.%Y'),
+            'date_obj': dt_obj.date(),
             'amount': amount,
             'currency': currency,
             'amount_rub': amount_rub,
             'comment': description,
+            'isin': isin,
+            'dividend_key': dividend_key,  # Ключ для связывания с дивидендом
+            'dividend_match_key': dividend_match_key,  # Точный ключ (дата+валюта+описание)
         })
 
     def _build_fifo_history(self, trades, conversions, symbol_to_isin=None, symbol_to_name=None):
