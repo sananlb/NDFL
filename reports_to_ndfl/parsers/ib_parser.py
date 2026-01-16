@@ -1422,6 +1422,9 @@ class IBParser(BaseBrokerParser):
                 if warrant_key in symbols_with_sales_in_target_year:
                     grouping_key = warrant_key
 
+                if display_type == 'acquisition_info':
+                    print(f"[DEBUG] Adding acquisition to filtered_history: symbol={symbol}, grouping_key={grouping_key}, ticker={event_details.get('ticker')}, is_relevant={event_details.get('is_relevant_for_target_year')}")
+
                 filtered_history[grouping_key].append(event)
 
         # Сортируем события в каждой группе по дате
