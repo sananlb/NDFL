@@ -192,6 +192,8 @@
                     {% if first_event_wrapper.display_type == 'conversion_info' %}
                         <h3>Акции: {{ first_event.old_instr_nm|default:first_event.old_ticker }} ({{ first_event.old_isin }}) / {{ first_event.old_ticker }}<br>
                         Акции: {{ first_event.new_instr_nm|default:first_event.new_ticker }} ({{ first_event.new_isin }}) / {{ first_event.new_ticker }}</h3>
+                    {% elif first_event_wrapper.display_type == 'acquisition_info' %}
+                        <h3>{{ first_event.instr_nm|default:first_event.ticker }}{% if first_event.isin %} ({{ first_event.isin }}){% endif %}</h3>
                     {% elif first_event_wrapper.display_type == 'option' %}
                         <h3>Опцион: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
                     {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
@@ -245,6 +247,18 @@
                                 <tr class="conversion-row">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                     <td colspan="7"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
+                                </tr>
+                                {% endif %}
+                            {% elif event_wrapper.display_type == 'acquisition_info' %}
+                                {% if event.is_relevant_for_target_year %}
+                                <tr class="acquisition-row">
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td colspan="7">
+                                        <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
+                                        {{ event.quantity|default:'?' }} {{ event.ticker }}
+                                        {% if event.source_ticker %} (из {{ event.source_ticker }}){% endif %}
+                                        {% if event.cost and event.cost != 0 %} — оплачено {{ event.cost }} {{ event.currency }} ({{ event.cost_rub }} RUB){% endif %}
+                                    </td>
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'initial_holding' %}
@@ -311,6 +325,8 @@
                     {% if first_event_wrapper.display_type == 'conversion_info' %}
                         <h3>Акции: {{ first_event.old_instr_nm|default:first_event.old_ticker }} ({{ first_event.old_isin }}) / {{ first_event.old_ticker }}<br>
                         Акции: {{ first_event.new_instr_nm|default:first_event.new_ticker }} ({{ first_event.new_isin }}) / {{ first_event.new_ticker }}</h3>
+                    {% elif first_event_wrapper.display_type == 'acquisition_info' %}
+                        <h3>{{ first_event.instr_nm|default:first_event.ticker }}{% if first_event.isin %} ({{ first_event.isin }}){% endif %}</h3>
                     {% elif first_event_wrapper.display_type == 'option' %}
                         <h3>Опцион: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
                     {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
@@ -364,6 +380,18 @@
                                 <tr class="conversion-row">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                     <td colspan="7"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
+                                </tr>
+                                {% endif %}
+                            {% elif event_wrapper.display_type == 'acquisition_info' %}
+                                {% if event.is_relevant_for_target_year %}
+                                <tr class="acquisition-row">
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td colspan="7">
+                                        <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
+                                        {{ event.quantity|default:'?' }} {{ event.ticker }}
+                                        {% if event.source_ticker %} (из {{ event.source_ticker }}){% endif %}
+                                        {% if event.cost and event.cost != 0 %} — оплачено {{ event.cost }} {{ event.currency }} ({{ event.cost_rub }} RUB){% endif %}
+                                    </td>
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'initial_holding' %}
@@ -456,7 +484,7 @@
         <table>
             <thead>
                 <tr>
-                    <th style="width: 18%;">Категория (Тикер)</th>
+                    <th style="width: 18%;">Тикер</th>
                     <th style="width: 12%;">Суммы в валютах</th>
                     <th style="width: 10%;">Сумма (RUB)</th>
                     <th style="width: 40%;">Описание</th>

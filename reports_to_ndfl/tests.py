@@ -434,7 +434,7 @@ class IBParserDividendMatchingTests(SimpleTestCase):
         self.assertEqual(dividend_events[0].get("fee_rub"), Decimal("-120"))
 
     def test_parse_fees_includes_adr_fee_near_target_year_dividend(self):
-        parser = IBParser(request=None, user=None, target_year=2025)
+        parser = IBParser(request=None, user=None, target_year=2024)
         parser._get_cbr_rate = lambda _currency, _dt_obj: Decimal("1")
 
         sections = {
@@ -443,33 +443,23 @@ class IBParserDividendMatchingTests(SimpleTestCase):
                     "header": ["Subtitle", "Валюта", "Дата", "Описание", "Сумма"],
                     "data": [
                         ["Другие сборы", "USD", "2024-12-23", "HSBK(US46627J3023) Плата ADR USD 0.02 на акцию", "-5.78"],
-                        ["Другие сборы", "USD", "2024-10-01", "HSBK(US46627J3023) Плата ADR USD 0.02 на акцию", "-1.00"],
                     ],
                 }
             ]
         }
-        dividend_events = [
-            {
-                "date": datetime(2025, 1, 6).date(),
-                "ticker": "HSBK",
-                "instrument_name": "US46627J3023",
-                "currency": "USD",
-                "dividend_key": "HSBK(US46627J3023) Наличный дивиденд USD 0.729142 на акцию",
-                "dividend_match_key": "2025-01-06|USD|HSBK(US46627J3023) Наличный дивиденд USD 0.729142 на акцию",
-            }
-        ]
 
         dividend_commissions = defaultdict(
             lambda: {"amount_by_currency": defaultdict(Decimal), "amount_rub": Decimal(0), "details": []}
         )
         other_commissions = defaultdict(lambda: {"currencies": defaultdict(Decimal), "total_rub": Decimal(0), "raw_events": []})
 
-        parser._parse_fees(sections, other_commissions, dividend_commissions, dividend_events=dividend_events, fee_relevance_window_days=45)
+        parser._parse_fees(sections, other_commissions, dividend_commissions)
 
-        # Должна попасть только комиссия близко к дивиденду (2024-12-23), а 2024-10-01 (97 дней) — нет.
+        # ADR fee не должен считаться дивидендной комиссией, так как нет явного упоминания дивиденда/-FEE.
         details = [d for cat in dividend_commissions.values() for d in cat.get("details", [])]
-        self.assertEqual(len(details), 1)
-        self.assertIn("Плата ADR", details[0].get("comment", ""))
+        self.assertEqual(len(details), 0)
+        self.assertIn("Другие сборы", other_commissions)
+        self.assertEqual(other_commissions["Другие сборы"]["currencies"]["USD"], Decimal("-5.78"))
 
     def test_conversion_without_prior_buys_creates_virtual_lot(self):
         """
