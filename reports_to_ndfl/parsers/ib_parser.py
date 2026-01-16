@@ -1364,13 +1364,10 @@ class IBParser(BaseBrokerParser):
                     event_details['is_relevant_for_target_year'] = True
                     is_relevant = True
                 elif display_type == 'acquisition_info':
-                    # acquisitions считаем аналогом покупок: релевантны, если лот использован в продажах целевого года
-                    lot_id = event_details.get('lot_id')
-                    if lot_id and lot_id in used_buy_ids_for_target_year:
-                        event_details['is_relevant_for_target_year'] = True
-                        is_relevant = True
-                    else:
-                        event_details['is_relevant_for_target_year'] = False
+                    # acquisitions релевантны, если символ в цепочке релевантных (как conversion_info)
+                    # Это нужно для отображения подписок/выдачи прав, которые привели к продажам в целевом году
+                    event_details['is_relevant_for_target_year'] = True
+                    is_relevant = True
 
                 # Фильтруем нерелевантные события старше 3 лет
                 if not is_relevant and dt_obj and dt_obj.year < cutoff_year:
