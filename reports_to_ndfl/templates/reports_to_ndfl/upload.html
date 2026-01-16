@@ -494,6 +494,7 @@
                         <th>Дата выплаты</th>
                         <th>Инструмент</th>
                         <th class="numeric">Сумма дивиденда</th>
+                        <th class="numeric">Итого комиссия (RUB)</th>
                         <th class="numeric">Удержанный налог</th>
                         <th>Валюта</th>
                         <th class="numeric">Курс ЦБ на дату</th>
@@ -505,6 +506,7 @@
                             <td>{{ div_event.date|date:"Y-m-d" }}</td>
                             <td>{{ div_event.ticker|default:"N/A" }} ({{div_event.instrument_name|default:'' }})</td>
                             <td class="numeric">{{ div_event.amount|floatformat:2 }}</td>
+                            <td class="numeric">{% if div_event.fee_rub %}{{ div_event.fee_rub|floatformat:2 }}{% else %}-{% endif %}</td>
                             <td class="numeric">{{ div_event.tax_amount|floatformat:2 }}</td>
                             <td>{{ div_event.currency|default:"N/A" }}</td>
                             <td class="numeric">{{ div_event.cbr_rate_str|default:"-" }}</td>
@@ -513,6 +515,69 @@
                 </tbody>
             </table>
         </div>
+
+        {# Детализация комиссий связанных с дивидендами #}
+        {% if dividend_commissions %}
+        <div class="content-block">
+            <h3>Детализация комиссий связанных с дивидендами</h3>
+            <p><strong>Общая сумма: {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</strong></p>
+            <table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">
+                <thead>
+                    <tr>
+                        <th>Категория (Тикер)</th>
+                        <th>Суммы в валютах</th>
+                        <th class="numeric">Сумма (RUB)</th>
+                        <th>Описание</th>
+                        <th>Детализация</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for category_name, category_data in dividend_commissions.items %}
+                        <tr>
+                            <td>{{ category_name }}</td>
+                            <td>
+                                {% for currency_code, total_amount in category_data.amount_by_currency.items %}
+                                    {{ total_amount|floatformat:2 }} {{ currency_code }}<br>
+                                {% empty %}
+                                    N/A
+                                {% endfor %}
+                            </td>
+                            <td class="numeric" style="font-weight: bold;">{{ category_data.amount_rub|floatformat:2 }}</td>
+                            <td>
+                                {% if category_data.details %}
+                                    <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
+                                        {% for detail in category_data.details %}
+                                            <li>
+                                                {{ detail.date }}:
+                                                {% if detail.comment %}
+                                                    {{ detail.comment|truncatechars:70 }}
+                                                {% else %}
+                                                    -
+                                                {% endif %}
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if category_data.details %}
+                                    <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
+                                        {% for detail in category_data.details %}
+                                            <li>{{ detail.amount|floatformat:2 }} {{ detail.currency }} ({{ detail.amount_rub|floatformat:2 }} RUB)</li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
     {% elif processing_has_run_for_current_display and not parsing_error_occurred and not instrument_history_1530 and not instrument_history_1532 %}
          <div class="no-data-message">Нет данных для отображения. Возможно, не найдено инструментов с продажами или дивидендов в целевом году ({{ target_report_year_for_title|default:"указанный" }}).</div>
     {% endif %}
@@ -521,89 +586,7 @@
     {% if processing_has_run_for_current_display %}
         <div class="content-block">
             <h2>Прочие расходы и доходы за {{ target_report_year_for_title|default:"указанный" }} год</h2>
-
-            {% comment %} {# --- ОТЛАДОЧНЫЙ ВЫВОД (ОСТАВЬТЕ ЭТО!) --- #}
-            <div style="background-color: #f0f0f0; border: 1px dashed #ccc; padding: 10px; margin: 10px 0; font-size: 0.8em;">
-                <p><strong>DEBUGGING OUTPUT (из upload.html):</strong></p>
-                <p>dividend_commissions (структура): <code>{ "Категория (Тикер)": {'amount_by_currency': {'USD': Сумма, ...}, 'amount_rub': СуммаRUB, 'details': [...]}, ... }</code></p>
-                <p style="word-break: break-all;">dividend_commissions (данные): {{ dividend_commissions|default_if_none:"{}"|safe }}</p>
-                <hr>
-                <p>other_commissions (структура): <code>{ "Категория": {'currencies': {'USD': Сумма, ...}, 'total_rub': СуммаRUB, 'raw_events': [...]}, ... }</code></p>
-                <p style="word-break: break-all;">other_commissions (данные): {{ other_commissions|default_if_none:"{}"|safe }}</p>
-                <hr>
-                <p>total_other_commissions_rub: {{ total_other_commissions_rub|default_if_none:"0.00"|safe }}</p>
-            </div>
-            {# --- КОНЕЦ ОТЛАДОЧНОГО ВЫВОДА --- #} {% endcomment %}
-
-            {# ----- Прочие расходы и доходы связанные с дивидендами ----- #}
-            <h4>Прочие расходы и доходы связанные с дивидендами:</h4>
-            <p><strong>Общая сумма: {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</strong></p>
-            {% if dividend_commissions %}
-                <table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">
-                    <thead>
-                        <tr>
-                            <th>Категория (Тикер)</th>
-                            <th>Суммы в валютах</th>
-                            <th class="numeric">Сумма (RUB)</th>
-                            <th>Описание</th>
-                            <th>Детализация</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for category_name, category_data in dividend_commissions.items %}
-                            <tr>
-                                <td>{{ category_name }}</td>
-                                <td>
-                                    {% for currency_code, total_amount in category_data.amount_by_currency.items %}
-                                        {{ total_amount|floatformat:2 }} {{ currency_code }}<br>
-                                    {% empty %}
-                                        N/A
-                                    {% endfor %}
-                                </td>
-                                <td class="numeric" style="font-weight: bold;">{{ category_data.amount_rub|floatformat:2 }}</td>
-                                <td>
-                                    {% if category_data.details %}
-                                        <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
-                                            {% for detail in category_data.details %}
-                                                <li>
-                                                    {{ detail.date }}:
-                                                    {% if detail.comment %}
-                                                        {{ detail.comment|truncatechars:70 }}
-                                                    {% else %}
-                                                        -
-                                                    {% endif %}
-                                                </li>
-                                            {% endfor %}
-                                        </ul>
-                                    {% else %}
-                                        -
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if category_data.details %}
-                                        <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
-                                            {% for detail in category_data.details %}
-                                                <li>{{ detail.amount|floatformat:2 }} {{ detail.currency }} ({{ detail.amount_rub|floatformat:2 }} RUB)</li>
-                                            {% endfor %}
-                                        </ul>
-                                    {% else %}
-                                        -
-                                    {% endif %}
-                                </td>
-                            </tr>
-                        {% empty %}
-                            <tr>
-                                <td colspan="5" style="text-align: center;">Прочие расходы и доходы связанные с дивидендами не найдены.</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                 <p>Прочие расходы и доходы связанные с дивидендами не найдены.</p>
-            {% endif %}
-            <br>
-            {# ----- Прочие расходы и доходы ----- #}
-            <h4 style="margin-top: 20px;">Прочие расходы и доходы:</h4>
+            {# Комиссии по дивидендам теперь отображаются в отдельном блоке после таблицы дивидендов #}
             <p><strong>Общая сумма: {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB</strong></p>
             <p style="color: #666; font-size: 0.9em;">Отрицательные значения = расходы (комиссии, проценты за маржу). Положительные = доходы (кредитные проценты).</p>
 

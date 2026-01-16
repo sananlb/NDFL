@@ -59,6 +59,139 @@ def _pisa_link_callback(uri, _rel):
 from .parsers import FFGParser, IBParser
 
 
+def _attach_dividend_fees(dividend_events, dividend_commissions_data):
+    report = {
+        'total_fee_details': 0,
+        'matched_fee_details': 0,
+        'unmatched_fee_details': 0,
+        'expected_fee_sum_rub': Decimal(0),
+        'assigned_fee_sum_rub': Decimal(0),
+        'ok': True,
+        'issues': [],
+    }
+
+    if not dividend_commissions_data:
+        return report
+
+    # Делает функцию идемпотентной: повторный вызов не "удвоит" комиссии.
+    for div_event in dividend_events or []:
+        div_event.pop('fee_rub', None)
+
+    # Если дивидендов нет, но FEE есть — сопоставить невозможно, это ошибка данных/парсинга.
+    if not dividend_events:
+        for _category, data in dividend_commissions_data.items():
+            report['total_fee_details'] += len(data.get('details', []))
+            report['expected_fee_sum_rub'] += sum(
+                (d.get('amount_rub', Decimal(0)) for d in data.get('details', [])),
+                Decimal(0),
+            )
+        if report['total_fee_details']:
+            report['ok'] = False
+            report['unmatched_fee_details'] = report['total_fee_details']
+            report['issues'].append('Найдены комиссии FEE, но дивиденды за год не найдены — сопоставление невозможно.')
+        return report
+
+    dividends_by_match_key = {}
+    dividends_by_dividend_key_currency = defaultdict(list)
+    dividends_by_ticker_currency = defaultdict(list)
+
+    for div_event in dividend_events:
+        dividend_match_key = div_event.get('dividend_match_key')
+        if dividend_match_key:
+            dividends_by_match_key[dividend_match_key] = div_event
+
+        dividend_key = div_event.get('dividend_key')
+        currency = (div_event.get('currency') or '').upper()
+        if dividend_key and currency:
+            dividends_by_dividend_key_currency[(dividend_key, currency)].append(div_event)
+
+        ticker = (div_event.get('ticker') or '').upper()
+        if ticker and currency:
+            dividends_by_ticker_currency[(ticker, currency)].append(div_event)
+
+    def _nearest_by_date(candidates, target_date):
+        if not candidates:
+            return None
+        if not target_date:
+            return candidates[0]
+        best = None
+        best_delta = None
+        for candidate in candidates:
+            d = candidate.get('date')
+            if not d:
+                continue
+            delta = abs((d - target_date).days)
+            if best is None or delta < best_delta or (delta == best_delta and d < best.get('date')):
+                best = candidate
+                best_delta = delta
+        return best or candidates[0]
+
+    def _fee_date(detail):
+        d = detail.get('date_obj')
+        if d:
+            return d
+        date_str = detail.get('date')
+        if date_str:
+            try:
+                return datetime.strptime(date_str, '%d.%m.%Y').date()
+            except ValueError:
+                return None
+        return None
+
+    for _category, data in dividend_commissions_data.items():
+        for detail in data.get('details', []):
+            amount_rub = detail.get('amount_rub', Decimal(0))
+            report['total_fee_details'] += 1
+            report['expected_fee_sum_rub'] += amount_rub
+
+            # 1) Точное совпадение: match_key (дата+валюта+нормализованное описание)
+            dividend_match_key = detail.get('dividend_match_key')
+            matched_div = dividends_by_match_key.get(dividend_match_key) if dividend_match_key else None
+
+            # 2) Fallback: по dividend_key+валюта + ближайшая дата
+            if matched_div is None:
+                dividend_key = detail.get('dividend_key')
+                currency = (detail.get('currency') or '').upper()
+                if dividend_key and currency:
+                    candidates = dividends_by_dividend_key_currency.get((dividend_key, currency), [])
+                    matched_div = _nearest_by_date(candidates, _fee_date(detail))
+
+            # 3) Fallback: по тикеру (из дивиденда) + валюта + ближайшая дата
+            if matched_div is None:
+                ticker = None
+                comment = detail.get('comment') or ''
+                m = re.match(r'^([A-Z0-9.\-]+)\s*\(', comment.strip())
+                if m:
+                    ticker = m.group(1)
+                currency = (detail.get('currency') or '').upper()
+                if ticker and currency:
+                    candidates = dividends_by_ticker_currency.get((ticker, currency), [])
+                    matched_div = _nearest_by_date(candidates, _fee_date(detail))
+
+            # 4) Последний шанс: ближайшая дата по всем дивидендам (чтобы не терять FEE)
+            if matched_div is None:
+                matched_div = _nearest_by_date(dividend_events, _fee_date(detail))
+
+            if matched_div is None:
+                report['unmatched_fee_details'] += 1
+                report['issues'].append('Не удалось сопоставить комиссию FEE ни с одним дивидендом.')
+                continue
+
+            report['matched_fee_details'] += 1
+            matched_div['fee_rub'] = matched_div.get('fee_rub', Decimal(0)) + amount_rub
+
+    report['assigned_fee_sum_rub'] = sum((d.get('fee_rub', Decimal(0)) for d in dividend_events), Decimal(0))
+    if report['assigned_fee_sum_rub'] != report['expected_fee_sum_rub']:
+        report['ok'] = False
+        report['issues'].append(
+            f"Сумма FEE по деталям ({report['expected_fee_sum_rub']}) не равна сумме FEE по дивидендам ({report['assigned_fee_sum_rub']})."
+        )
+    if report['unmatched_fee_details'] > 0:
+        report['ok'] = False
+
+    return report
+
+
 # parse_year_from_date_end остается здесь, так как используется для первичного чтения файла
 def parse_year_from_date_end(xml_string_content):
     try:
@@ -387,6 +520,11 @@ def upload_xml_file(request):
                 Decimal(0)
             )
 
+            fee_matching_report = _attach_dividend_fees(dividend_events, dividend_commissions_data)
+            if fee_matching_report and not fee_matching_report.get('ok', True):
+                for issue in fee_matching_report.get('issues', []):
+                    messages.error(request, f"Проблема сопоставления комиссий по дивидендам: {issue}")
+
             context['instrument_history_1530'] = instrument_history_1530
             context['instrument_history_1532'] = instrument_history_1532
             context['dividend_history'] = dividend_events
@@ -399,6 +537,7 @@ def upload_xml_file(request):
             context['other_commissions'] = other_commissions_data
             context['total_dividend_commissions_rub'] = total_dividend_commissions_rub
             context['total_other_commissions_rub'] = total_other_commissions_rub_val
+            context['dividend_fee_matching_report'] = fee_matching_report
 
     return render(request, 'reports_to_ndfl/upload.html', context)
 
@@ -489,6 +628,8 @@ def download_pdf(request):
         Decimal(0)
     )
 
+    fee_matching_report = _attach_dividend_fees(dividend_events, dividend_commissions_data)
+
     # Контекст для PDF шаблона (БЕЗ информации о пользователе)
     context = {
         'target_report_year_for_title': target_year,
@@ -505,6 +646,7 @@ def download_pdf(request):
         'other_commissions': other_commissions_data,
         'total_dividend_commissions_rub': total_dividend_commissions_rub,
         'total_other_commissions_rub': total_other_commissions_rub_val,
+        'dividend_fee_matching_report': fee_matching_report,
         'generation_date': datetime.now().strftime('%d.%m.%Y %H:%M'),
     }
 

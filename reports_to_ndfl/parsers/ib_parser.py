@@ -464,6 +464,8 @@ class IBParser(BaseBrokerParser):
                 if asset_class in ('Всего', 'Всего в USD', 'Total', 'Total in USD'):
                     continue
 
+                symbol = self._get_value(row, header_map, ['Символ', 'Symbol'])
+                symbol = symbol.strip() if symbol else ''
                 description = self._get_value(row, header_map, ['Описание', 'Description'])
                 quantity = self._parse_decimal(self._get_value(row, header_map, ['Количество', 'Quantity']))
                 date_raw = self._get_value(row, header_map, ['Дата/Время', 'Date/Time'])
@@ -489,23 +491,66 @@ class IBParser(BaseBrokerParser):
                 is_merger = 'слияние' in desc_lower or 'merger' in desc_lower
                 is_spinoff = 'спин-офф' in desc_lower or 'spin-off' in desc_lower or 'spinoff' in desc_lower
 
-                # Первый тикер в описании - источник, последний в скобках - результат
-                source_ticker, source_isin = pairs[0]
-                result_ticker, result_isin = pairs[-1] if len(pairs) >= 2 else pairs[0]
+                # Определяем "тикер строки" (какой инструмент именно списан/получен в этой записи).
+                # В реальном IB CSV он есть в колонке "Символ". Если колонки нет (например, в тестах),
+                # восстанавливаем по знаку количества: для списаний берём первый тикер, для получений — последний.
+                row_ticker = None
+                row_isin = None
+                other_ticker = None
+                other_isin = None
+
+                if symbol:
+                    row_ticker = symbol
+                    for tck, isn in pairs:
+                        if tck == row_ticker:
+                            row_isin = isn
+                            break
+                    if row_isin is None:
+                        row_ticker, row_isin = pairs[0]
+                    other = next(((tck, isn) for (tck, isn) in reversed(pairs) if tck != row_ticker), None)
+                    if other is None:
+                        other = next(((tck, isn) for (tck, isn) in pairs if tck != row_ticker), None)
+                    if other:
+                        other_ticker, other_isin = other
+                else:
+                    if len(pairs) >= 2:
+                        if quantity < 0:
+                            row_ticker, row_isin = pairs[0]
+                            other_ticker, other_isin = pairs[-1]
+                        else:
+                            row_ticker, row_isin = pairs[-1]
+                            other_ticker, other_isin = pairs[0]
+                    else:
+                        row_ticker, row_isin = pairs[0]
+
+                # Нормализуем: old/new пары для удобства дальнейшей агрегации.
+                old_ticker = old_isin = new_ticker = new_isin = None
+                if row_ticker and other_ticker and row_ticker != other_ticker:
+                    if quantity < 0:
+                        old_ticker, old_isin = row_ticker, row_isin
+                        new_ticker, new_isin = other_ticker, other_isin
+                    else:
+                        old_ticker, old_isin = other_ticker, other_isin
+                        new_ticker, new_isin = row_ticker, row_isin
 
                 all_events.append({
                     'dt_obj': dt_obj,
                     'date': dt_obj.date(),
                     'asset_class': asset_class,
                     'currency': currency,
+                    'symbol': symbol,
                     'description': description,
                     'quantity': quantity,
                     'proceeds': proceeds,
                     'value': value,
-                    'source_ticker': source_ticker,
-                    'source_isin': source_isin,
-                    'result_ticker': result_ticker,
-                    'result_isin': result_isin,
+                    'row_ticker': row_ticker,
+                    'row_isin': row_isin,
+                    'other_ticker': other_ticker,
+                    'other_isin': other_isin,
+                    'old_ticker': old_ticker,
+                    'old_isin': old_isin,
+                    'new_ticker': new_ticker,
+                    'new_isin': new_isin,
                     'is_rights_issue': is_rights_issue,
                     'is_subscription': is_subscription,
                     'is_merger': is_merger,
@@ -535,130 +580,149 @@ class IBParser(BaseBrokerParser):
         for key, events in events_by_base.items():
             date, base_desc = key
 
-            # Разделяем на списания (qty < 0) и получения (qty > 0)
-            removals = [e for e in events if e['quantity'] < 0]
-            receives = [e for e in events if e['quantity'] > 0]
+            # Случай 1: выдача прав / spin-off (получение без списания, себестоимость = 0)
+            for ev in events:
+                ev_id = id(ev)
+                if ev_id in processed_events:
+                    continue
+                if ev.get('quantity', Decimal(0)) <= 0:
+                    continue
+                if not (ev.get('is_rights_issue') or ev.get('is_spinoff')):
+                    continue
 
-            # Случай 1: Есть и списание и получение - это конвертация
-            if removals and receives:
-                for removal in removals:
-                    removal_id = id(removal)
-                    if removal_id in processed_events:
-                        continue
+                acquisitions.append({
+                    'datetime_obj': ev['dt_obj'],
+                    'ticker': ev.get('row_ticker') or '',
+                    'isin': ev.get('row_isin') or '',
+                    'quantity': ev['quantity'],
+                    'currency': ev.get('currency') or 'USD',
+                    'cost': Decimal(0),
+                    'value': ev.get('value', Decimal(0)),
+                    'comment': ev.get('description', ''),
+                    'asset_class': ev.get('asset_class', ''),
+                    'source_ticker': ev.get('other_ticker') or '',
+                    'source_isin': ev.get('other_isin') or '',
+                    'type': 'rights_issue' if ev.get('is_rights_issue') else 'spinoff',
+                })
+                processed_events.add(ev_id)
 
-                    old_ticker = removal['result_ticker']
-                    old_isin = removal['result_isin']
-                    old_qty = abs(removal['quantity'])
+            # Случай 2: подписка (списание прав + получение подписки, себестоимость = оплаченная сумма)
+            subscription_removals = [e for e in events if e.get('is_subscription') and e.get('quantity', Decimal(0)) < 0]
+            subscription_receives = [e for e in events if e.get('is_subscription') and e.get('quantity', Decimal(0)) > 0]
 
-                    # Ищем соответствующее получение
-                    for receive in receives:
-                        receive_id = id(receive)
-                        if receive_id in processed_events:
-                            continue
-
-                        new_ticker = receive['result_ticker']
-                        new_isin = receive['result_isin']
-                        new_qty = receive['quantity']
-
-                        # Пропускаем если тикеры одинаковые
-                        if old_ticker == new_ticker:
-                            continue
-
-                        # Проверяем, не техническая ли это смена тикера
-                        is_technical = self._is_technical_rename(
-                            old_ticker, new_ticker, old_isin, new_isin,
-                            old_qty, new_qty, symbol_to_name
-                        )
-                        if is_technical:
-                            continue
-
-                        # Это реальная конвертация
-                        conversions.append({
-                            'datetime_obj': removal['dt_obj'],
-                            'old_ticker': old_ticker,
-                            'new_ticker': new_ticker,
-                            'old_isin': old_isin,
-                            'new_isin': new_isin,
-                            'old_qty_removed': old_qty,
-                            'new_qty_received': new_qty,
-                            'currency': removal['currency'],
-                            'proceeds': removal['proceeds'],
-                            'value': receive['value'],
-                            'comment': removal['description'],
-                            'asset_class_from': removal['asset_class'],
-                            'asset_class_to': receive['asset_class'],
-                        })
-                        processed_events.add(removal_id)
-                        processed_events.add(receive_id)
-                        break
-
-            # Случай 2: Только получение без списания - это выдача прав или spin-off
-            for receive in receives:
+            for receive in subscription_receives:
                 receive_id = id(receive)
                 if receive_id in processed_events:
                     continue
 
-                # Это acquisition (получение нового инструмента)
-                # Выдача прав, spin-off - обычно бесплатно
-                if receive['is_rights_issue'] or receive['is_spinoff']:
-                    acquisitions.append({
-                        'datetime_obj': receive['dt_obj'],
-                        'ticker': receive['result_ticker'],
-                        'isin': receive['result_isin'],
-                        'quantity': receive['quantity'],
-                        'currency': receive['currency'],
-                        'cost': Decimal(0),  # Бесплатно получено
-                        'value': receive['value'],
-                        'comment': receive['description'],
-                        'asset_class': receive['asset_class'],
-                        'source_ticker': receive['source_ticker'],
-                        'source_isin': receive['source_isin'],
-                        'type': 'rights_issue' if receive['is_rights_issue'] else 'spinoff',
-                    })
-                    processed_events.add(receive_id)
+                matched_removal = None
+                for removal in subscription_removals:
+                    removal_id = id(removal)
+                    if removal_id in processed_events:
+                        continue
+                    if (
+                        removal.get('old_ticker') == receive.get('old_ticker')
+                        and removal.get('new_ticker') == receive.get('new_ticker')
+                    ):
+                        matched_removal = removal
+                        break
 
-        # Случай 3: Подписка - ищем пары (списание прав + получение подписки)
-        # Группируем по дате для поиска связанных событий подписки
-        events_by_date = defaultdict(list)
-        for ev in all_events:
-            if id(ev) not in processed_events:
-                events_by_date[ev['date']].append(ev)
+                if matched_removal is None and subscription_removals:
+                    matched_removal = next((r for r in subscription_removals if id(r) not in processed_events), None)
 
-        for date, events in events_by_date.items():
-            subscription_removals = [e for e in events if e['is_subscription'] and e['quantity'] < 0]
-            subscription_receives = [e for e in events if e['is_subscription'] and e['quantity'] > 0]
+                cost_paid = Decimal(0)
+                if matched_removal:
+                    for amt in (matched_removal.get('proceeds', Decimal(0)), matched_removal.get('value', Decimal(0))):
+                        if amt:
+                            cost_paid = abs(amt)
+                            break
 
-            for removal in subscription_removals:
-                removal_id = id(removal)
-                if removal_id in processed_events:
+                acquisitions.append({
+                    'datetime_obj': receive['dt_obj'],
+                    'ticker': receive.get('row_ticker') or '',
+                    'isin': receive.get('row_isin') or '',
+                    'quantity': receive['quantity'],
+                    'currency': receive.get('currency') or (matched_removal.get('currency') if matched_removal else 'USD'),
+                    'cost': cost_paid,
+                    'value': receive.get('value', Decimal(0)),
+                    'comment': receive.get('description', ''),
+                    'asset_class': receive.get('asset_class', ''),
+                    'source_ticker': (matched_removal.get('row_ticker') if matched_removal else '') or '',
+                    'source_isin': (matched_removal.get('row_isin') if matched_removal else '') or '',
+                    'type': 'subscription',
+                })
+
+                processed_events.add(receive_id)
+                if matched_removal:
+                    processed_events.add(id(matched_removal))
+
+            # Случай 3: конвертация (перенос стоимости)
+            # Исключаем подписку/выдачу прав/spin-off: они обрабатываются как acquisitions.
+            conversion_acc = defaultdict(lambda: {
+                'datetime_obj': None,
+                'old_qty_removed': Decimal(0),
+                'new_qty_received': Decimal(0),
+                'currency': '',
+                'proceeds': Decimal(0),
+                'value': Decimal(0),
+                'comment': '',
+                'asset_class_from': '',
+                'asset_class_to': '',
+            })
+
+            for ev in events:
+                if id(ev) in processed_events:
+                    continue
+                if ev.get('is_subscription') or ev.get('is_rights_issue') or ev.get('is_spinoff'):
+                    continue
+                old_ticker = ev.get('old_ticker')
+                new_ticker = ev.get('new_ticker')
+                old_isin = ev.get('old_isin')
+                new_isin = ev.get('new_isin')
+                if not old_ticker or not new_ticker or old_ticker == new_ticker:
                     continue
 
-                # Списание прав при подписке
-                cost_paid = abs(removal['proceeds']) if removal['proceeds'] < 0 else Decimal(0)
+                pair_key = (old_ticker, new_ticker, old_isin or '', new_isin or '')
+                acc = conversion_acc[pair_key]
+                if acc['datetime_obj'] is None or ev.get('dt_obj') < acc['datetime_obj']:
+                    acc['datetime_obj'] = ev.get('dt_obj')
+                acc['comment'] = acc['comment'] or (ev.get('description') or '')
 
-                for receive in subscription_receives:
-                    receive_id = id(receive)
-                    if receive_id in processed_events:
-                        continue
+                qty = ev.get('quantity', Decimal(0))
+                if qty < 0:
+                    acc['old_qty_removed'] += abs(qty)
+                    acc['currency'] = ev.get('currency') or acc['currency']
+                    acc['proceeds'] = ev.get('proceeds', Decimal(0))
+                    acc['asset_class_from'] = ev.get('asset_class') or acc['asset_class_from']
+                else:
+                    acc['new_qty_received'] += qty
+                    acc['value'] = ev.get('value', Decimal(0))
+                    acc['asset_class_to'] = ev.get('asset_class') or acc['asset_class_to']
 
-                    # Получение подписочных акций/прав
-                    acquisitions.append({
-                        'datetime_obj': receive['dt_obj'],
-                        'ticker': receive['result_ticker'],
-                        'isin': receive['result_isin'],
-                        'quantity': receive['quantity'],
-                        'currency': receive['currency'],
-                        'cost': cost_paid,  # Оплаченная сумма
-                        'value': receive['value'],
-                        'comment': receive['description'],
-                        'asset_class': receive['asset_class'],
-                        'source_ticker': removal['result_ticker'],
-                        'source_isin': removal['result_isin'],
-                        'type': 'subscription',
-                    })
-                    processed_events.add(removal_id)
-                    processed_events.add(receive_id)
-                    break
+            for (old_ticker, new_ticker, old_isin, new_isin), acc in conversion_acc.items():
+                if acc['old_qty_removed'] <= 0 or acc['new_qty_received'] <= 0:
+                    continue
+                is_technical = self._is_technical_rename(
+                    old_ticker, new_ticker, old_isin, new_isin,
+                    acc['old_qty_removed'], acc['new_qty_received'], symbol_to_name
+                )
+                if is_technical:
+                    continue
+                conversions.append({
+                    'datetime_obj': acc['datetime_obj'],
+                    'old_ticker': old_ticker,
+                    'new_ticker': new_ticker,
+                    'old_isin': old_isin,
+                    'new_isin': new_isin,
+                    'old_qty_removed': acc['old_qty_removed'],
+                    'new_qty_received': acc['new_qty_received'],
+                    'currency': acc['currency'],
+                    'proceeds': acc['proceeds'],
+                    'value': acc['value'],
+                    'comment': acc['comment'],
+                    'asset_class_from': acc.get('asset_class_from', ''),
+                    'asset_class_to': acc.get('asset_class_to', ''),
+                })
 
         return conversions, acquisitions
 
@@ -847,21 +911,27 @@ class IBParser(BaseBrokerParser):
         acquisition_idx = 0
 
         for trade in trades:
-            # Обрабатываем конвертации, которые произошли до текущей сделки
-            while conversion_idx < len(conversions_by_date):
-                conv = conversions_by_date[conversion_idx]
-                if trade.get('datetime_obj') and conv['datetime_obj'] > trade['datetime_obj']:
-                    break
-                self._apply_conversion(conv, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
-                conversion_idx += 1
+            # Обрабатываем конвертации и acquisitions в хронологическом порядке до текущей сделки
+            trade_dt = trade.get('datetime_obj') or datetime.max
+            while True:
+                next_conv = conversions_by_date[conversion_idx] if conversion_idx < len(conversions_by_date) else None
+                next_acq = acquisitions_by_date[acquisition_idx] if acquisition_idx < len(acquisitions_by_date) else None
 
-            # Обрабатываем acquisitions (получения через корп. действия), которые произошли до текущей сделки
-            while acquisition_idx < len(acquisitions_by_date):
-                acq = acquisitions_by_date[acquisition_idx]
-                if trade.get('datetime_obj') and acq['datetime_obj'] > trade['datetime_obj']:
+                next_conv_dt = (next_conv.get('datetime_obj') if next_conv else None) or datetime.min
+                next_acq_dt = (next_acq.get('datetime_obj') if next_acq else None) or datetime.min
+
+                has_conv = next_conv is not None and next_conv_dt <= trade_dt
+                has_acq = next_acq is not None and next_acq_dt <= trade_dt
+
+                if not has_conv and not has_acq:
                     break
-                self._apply_acquisition(acq, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
-                acquisition_idx += 1
+
+                if has_conv and (not has_acq or next_conv_dt <= next_acq_dt):
+                    self._apply_conversion(next_conv, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
+                    conversion_idx += 1
+                else:
+                    self._apply_acquisition(next_acq, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
+                    acquisition_idx += 1
 
             dt_obj = trade.get('datetime_obj')
             symbol = trade.get('group_symbol') or trade.get('symbol') or 'UNKNOWN'
@@ -991,17 +1061,22 @@ class IBParser(BaseBrokerParser):
                     if last_short.get('sell_id') == event_details['trade_id']:
                         last_short['sell_details'] = event_details
 
-        # Обрабатываем оставшиеся конвертации после всех сделок
-        while conversion_idx < len(conversions_by_date):
-            conv = conversions_by_date[conversion_idx]
-            self._apply_conversion(conv, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
-            conversion_idx += 1
+        # Обрабатываем оставшиеся конвертации/acquisitions после всех сделок (тоже по времени)
+        while conversion_idx < len(conversions_by_date) or acquisition_idx < len(acquisitions_by_date):
+            next_conv = conversions_by_date[conversion_idx] if conversion_idx < len(conversions_by_date) else None
+            next_acq = acquisitions_by_date[acquisition_idx] if acquisition_idx < len(acquisitions_by_date) else None
 
-        # Обрабатываем оставшиеся acquisitions после всех сделок
-        while acquisition_idx < len(acquisitions_by_date):
-            acq = acquisitions_by_date[acquisition_idx]
-            self._apply_acquisition(acq, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
-            acquisition_idx += 1
+            next_conv_dt = (next_conv.get('datetime_obj') if next_conv else None) or datetime.max
+            next_acq_dt = (next_acq.get('datetime_obj') if next_acq else None) or datetime.max
+
+            if next_conv and (not next_acq or next_conv_dt <= next_acq_dt):
+                self._apply_conversion(next_conv, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
+                conversion_idx += 1
+            elif next_acq:
+                self._apply_acquisition(next_acq, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
+                acquisition_idx += 1
+            else:
+                break
 
         for symbol, events in instrument_events.items():
             for event in events:
@@ -1110,8 +1185,8 @@ class IBParser(BaseBrokerParser):
             details = event.get('event_details', {})
             conv_id = id(event)  # Используем id события как уникальный идентификатор
             if conv_id not in processed_conversion_ids:
-                old_symbol = details.get('old_ticker')
-                new_symbol = details.get('new_ticker')
+                old_symbol = details.get('old_symbol') or details.get('old_ticker')
+                new_symbol = details.get('new_symbol') or details.get('new_ticker')
                 if old_symbol and new_symbol and old_symbol != new_symbol:
                     conversion_map_old_to_new[old_symbol] = new_symbol
                     conversion_map_new_to_old[new_symbol] = old_symbol
@@ -1230,6 +1305,14 @@ class IBParser(BaseBrokerParser):
                     # Это значит, что они связаны с конвертацией или с продажами в целевом году
                     event_details['is_relevant_for_target_year'] = True
                     is_relevant = True
+                elif display_type == 'acquisition_info':
+                    # acquisitions считаем аналогом покупок: релевантны, если лот использован в продажах целевого года
+                    lot_id = event_details.get('lot_id')
+                    if lot_id and lot_id in used_buy_ids_for_target_year:
+                        event_details['is_relevant_for_target_year'] = True
+                        is_relevant = True
+                    else:
+                        event_details['is_relevant_for_target_year'] = False
 
                 # Фильтруем нерелевантные события старше 3 лет
                 if not is_relevant and dt_obj and dt_obj.year < cutoff_year:
@@ -1237,7 +1320,7 @@ class IBParser(BaseBrokerParser):
 
                 # Определяем ключ группировки - самый новый символ в цепочке
                 if display_type == 'conversion_info':
-                    event_symbol = event_details.get('new_ticker')
+                    event_symbol = event_details.get('new_symbol') or symbol
                 else:
                     event_symbol = symbol
 
@@ -1293,15 +1376,21 @@ class IBParser(BaseBrokerParser):
         new_qty_received = conv['new_qty_received']
 
         # Определяем group_symbol с учётом класса актива
-        # Для варрантов добавляем префикс WARRANT_
         asset_class_to = conv.get('asset_class_to', '')
         if asset_class_to in ('Варранты', 'Warrants'):
             new_symbol = f"WARRANT_{new_ticker}"
+        elif asset_class_to in ('Опционы на акции и индексы', 'Stock Options'):
+            new_symbol = f"OPTION_{new_ticker}"
         else:
             new_symbol = new_ticker
 
-        # Старый символ - ищем как есть (без префикса для обычных акций/прав)
-        old_symbol = old_ticker
+        asset_class_from = conv.get('asset_class_from', '')
+        if asset_class_from in ('Варранты', 'Warrants'):
+            old_symbol = f"WARRANT_{old_ticker}"
+        elif asset_class_from in ('Опционы на акции и индексы', 'Stock Options'):
+            old_symbol = f"OPTION_{old_ticker}"
+        else:
+            old_symbol = old_ticker
 
         # Рассчитываем соотношение конвертации (ratio)
         # Например: 1500 old -> 150 new, ratio = 150/1500 = 0.1 (10:1 reverse split)
@@ -1322,10 +1411,21 @@ class IBParser(BaseBrokerParser):
             if old_isin:
                 # Ищем символ с тем же ISIN
                 for sym, isin in symbol_to_isin.items():
-                    if isin == old_isin and sym != old_symbol and buy_lots[sym]:
-                        # Нашли символ с тем же ISIN — переносим лоты
-                        while buy_lots[sym]:
-                            buy_lots[old_symbol].append(buy_lots[sym].popleft())
+                    if isin != old_isin:
+                        continue
+                    if sym == old_ticker:
+                        continue
+
+                    candidate_key = sym
+                    if old_symbol.startswith('WARRANT_') and not candidate_key.startswith('WARRANT_'):
+                        candidate_key = f"WARRANT_{sym}"
+                    elif old_symbol.startswith('OPTION_') and not candidate_key.startswith('OPTION_'):
+                        candidate_key = f"OPTION_{sym}"
+
+                    if buy_lots[candidate_key]:
+                        # Нашли символ с тем же ISIN - переносим лоты
+                        while buy_lots[candidate_key]:
+                            buy_lots[old_symbol].append(buy_lots[candidate_key].popleft())
                         break
 
         total_qty_removed = Decimal(0)
@@ -1388,6 +1488,8 @@ class IBParser(BaseBrokerParser):
             'datetime_obj': conv['datetime_obj'],
             'event_details': {
                 'corp_action_id': None,
+                'old_symbol': old_symbol,
+                'new_symbol': new_symbol,
                 'old_ticker': old_ticker,
                 'old_isin': conv['old_isin'],
                 'old_instr_nm': symbol_to_name.get(old_ticker, old_ticker),
@@ -1398,7 +1500,7 @@ class IBParser(BaseBrokerParser):
                 'new_quantity_received': new_qty_received,
                 'ratio_comment': conv.get('comment', ''),
                 'is_relevant_for_target_year': False,
-                'asset_class_from': conv.get('asset_class_from', ''),
+                'asset_class_from': asset_class_from,
                 'asset_class_to': asset_class_to,
             },
         })
@@ -1431,6 +1533,10 @@ class IBParser(BaseBrokerParser):
         group_symbol = ticker
         if asset_class in ('Варранты', 'Warrants'):
             group_symbol = f"WARRANT_{ticker}"
+
+        # Дублируем ISIN на group_symbol, чтобы внутренние связи/фильтры работали и для префиксных инструментов
+        if isin and group_symbol and group_symbol != ticker and group_symbol not in symbol_to_isin:
+            symbol_to_isin[group_symbol] = isin
 
         # Рассчитываем стоимость в рублях
         cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)

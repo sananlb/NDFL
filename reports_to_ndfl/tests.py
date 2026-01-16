@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.test import SimpleTestCase
 
 from reports_to_ndfl.parsers.ib_parser import IBParser
+from reports_to_ndfl.views import _attach_dividend_fees
 
 
 def _trade(
@@ -241,6 +242,196 @@ class IBParserConversionLinksTests(SimpleTestCase):
         self.assertIn("BUY_3", used_buy_ids)
         self.assertNotIn("BUY_4", used_buy_ids, "BUY_4 не должен использоваться при FIFO продаже 100 акций")
 
+
+class IBParserDividendMatchingTests(SimpleTestCase):
+    def test_extract_symbol_isin_allows_space_before_paren(self):
+        parser = IBParser(request=None, user=None, target_year=2020)
+        ticker, isin = parser._extract_symbol_isin("D05 (SG1L01001701) Наличный дивиденд SGD 0.18")
+        self.assertEqual(ticker, "D05")
+        self.assertEqual(isin, "SG1L01001701")
+
+    def test_normalize_dividend_description_strips_fee_tax_and_trailing_parens(self):
+        parser = IBParser(request=None, user=None, target_year=2025)
+        self.assertEqual(
+            parser._normalize_dividend_description(
+                "GLTR(US37949E2046) Наличный дивиденд USD 0.61982 на акцию - FEE"
+            ),
+            "GLTR(US37949E2046) Наличный дивиденд USD 0.61982 на акцию",
+        )
+        self.assertEqual(
+            parser._normalize_dividend_description(
+                "CMCSA(US20030N1019) Выплата в качестве дивиденда (Обыкновенный дивиденд)"
+            ),
+            "CMCSA(US20030N1019) Выплата в качестве дивиденда",
+        )
+        self.assertEqual(
+            parser._normalize_dividend_description(
+                "FMC(US3024913036) Выплата в качестве дивиденда - US Налог"
+            ),
+            "FMC(US3024913036) Выплата в качестве дивиденда",
+        )
+
+    def test_withholding_tax_matches_by_description_not_just_date_symbol(self):
+        parser = IBParser(request=None, user=None, target_year=2025)
+        parser._get_cbr_rate = lambda _currency, _dt_obj: Decimal("1")
+
+        sections = {
+            "Дивиденды": [
+                {
+                    "header": ["Валюта", "Дата", "Описание", "Сумма"],
+                    "data": [
+                        [
+                            "USD",
+                            "2025-04-23",
+                            "CMCSA(US20030N1019) Наличный дивиденд USD 0.33 на акцию (Обыкновенный дивиденд)",
+                            "63.03",
+                        ],
+                        [
+                            "USD",
+                            "2025-04-23",
+                            "CMCSA(US20030N1019) Выплата в качестве дивиденда (Обыкновенный дивиденд)",
+                            "2.97",
+                        ],
+                    ],
+                }
+            ],
+            "Удерживаемый налог": [
+                {
+                    "header": ["Валюта", "Дата", "Описание", "Сумма", "Код"],
+                    "data": [
+                        [
+                            "USD",
+                            "2025-04-23",
+                            "CMCSA(US20030N1019) Наличный дивиденд USD 0.33 на акцию - US Налог",
+                            "-18.91",
+                            "",
+                        ],
+                        [
+                            "USD",
+                            "2025-04-23",
+                            "CMCSA(US20030N1019) Выплата в качестве дивиденда - US Налог",
+                            "-0.89",
+                            "",
+                        ],
+                    ],
+                }
+            ],
+        }
+
+        dividends = parser._parse_dividends(sections)
+        self.assertEqual(len(dividends), 2)
+
+        dividends_by_key = {d["dividend_key"]: d for d in dividends}
+        self.assertEqual(
+            dividends_by_key["CMCSA(US20030N1019) Наличный дивиденд USD 0.33 на акцию"]["tax_amount"],
+            Decimal("-18.91"),
+        )
+        self.assertEqual(
+            dividends_by_key["CMCSA(US20030N1019) Выплата в качестве дивиденда"]["tax_amount"],
+            Decimal("-0.89"),
+        )
+
+    def test_dividend_fee_fallback_matches_nearest_date_for_repeated_description(self):
+        dividend_events = [
+            {
+                "date": datetime(2025, 1, 8).date(),
+                "ticker": "MRK",
+                "currency": "USD",
+                "dividend_key": "MRK(US58933Y1055) Наличный дивиденд USD 0.81 на акцию",
+                "dividend_match_key": "2025-01-08|USD|MRK(US58933Y1055) Наличный дивиденд USD 0.81 на акцию",
+            },
+            {
+                "date": datetime(2025, 4, 7).date(),
+                "ticker": "MRK",
+                "currency": "USD",
+                "dividend_key": "MRK(US58933Y1055) Наличный дивиденд USD 0.81 на акцию",
+                "dividend_match_key": "2025-04-07|USD|MRK(US58933Y1055) Наличный дивиденд USD 0.81 на акцию",
+            },
+        ]
+        dividend_commissions_data = {
+            "Комиссия по дивидендам (MRK)": {
+                "amount_by_currency": {"USD": Decimal("-1")},
+                "amount_rub": Decimal("-1"),
+                "details": [
+                    {
+                        "date": "08.04.2025",
+                        "date_obj": datetime(2025, 4, 8).date(),
+                        "amount": Decimal("-1"),
+                        "currency": "USD",
+                        "amount_rub": Decimal("-100"),
+                        "comment": "MRK(US58933Y1055) Наличный дивиденд USD 0.81 на акцию - FEE",
+                        "dividend_key": "MRK(US58933Y1055) Наличный дивиденд USD 0.81 на акцию",
+                        # намеренно неверная дата в match_key, чтобы проверять fallback
+                        "dividend_match_key": "2025-04-08|USD|MRK(US58933Y1055) Наличный дивиденд USD 0.81 на акцию",
+                    }
+                ],
+            }
+        }
+
+        _attach_dividend_fees(dividend_events, dividend_commissions_data)
+
+        self.assertNotIn("fee_rub", dividend_events[0])
+        self.assertEqual(dividend_events[1].get("fee_rub"), Decimal("-100"))
+
+    def test_dividend_fee_matching_report_detects_fee_without_dividends(self):
+        dividend_events = []
+        dividend_commissions_data = {
+            "Комиссия по дивидендам (X)": {
+                "amount_by_currency": {"USD": Decimal("-1")},
+                "amount_rub": Decimal("-1"),
+                "details": [
+                    {
+                        "date": "01.01.2025",
+                        "date_obj": datetime(2025, 1, 1).date(),
+                        "amount": Decimal("-1"),
+                        "currency": "USD",
+                        "amount_rub": Decimal("-10"),
+                        "comment": "X(US0000000000) Cash Dividend - FEE",
+                        "dividend_key": "X(US0000000000) Cash Dividend",
+                        "dividend_match_key": "2025-01-01|USD|X(US0000000000) Cash Dividend",
+                    }
+                ],
+            }
+        }
+        report = _attach_dividend_fees(dividend_events, dividend_commissions_data)
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["total_fee_details"], 1)
+        self.assertEqual(report["unmatched_fee_details"], 1)
+
+    def test_attach_dividend_fees_is_idempotent(self):
+        dividend_events = [
+            {
+                "date": datetime(2025, 10, 7).date(),
+                "ticker": "GLTR",
+                "currency": "USD",
+                "dividend_key": "GLTR(US37949E2046) Наличный дивиденд USD 3.910916 на акцию",
+                "dividend_match_key": "2025-10-07|USD|GLTR(US37949E2046) Наличный дивиденд USD 3.910916 на акцию",
+            }
+        ]
+        dividend_commissions_data = {
+            "Комиссия по дивидендам (GLTR)": {
+                "amount_by_currency": {"USD": Decimal("-1")},
+                "amount_rub": Decimal("-1"),
+                "details": [
+                    {
+                        "date": "07.10.2025",
+                        "date_obj": datetime(2025, 10, 7).date(),
+                        "amount": Decimal("-1"),
+                        "currency": "USD",
+                        "amount_rub": Decimal("-120"),
+                        "comment": "GLTR(US37949E2046) Наличный дивиденд USD 3.910916 на акцию - FEE",
+                        "dividend_key": "GLTR(US37949E2046) Наличный дивиденд USD 3.910916 на акцию",
+                        "dividend_match_key": "2025-10-07|USD|GLTR(US37949E2046) Наличный дивиденд USD 3.910916 на акцию",
+                    }
+                ],
+            }
+        }
+        report1 = _attach_dividend_fees(dividend_events, dividend_commissions_data)
+        report2 = _attach_dividend_fees(dividend_events, dividend_commissions_data)
+        self.assertTrue(report1["ok"])
+        self.assertTrue(report2["ok"])
+        self.assertEqual(dividend_events[0].get("fee_rub"), Decimal("-120"))
+
     def test_conversion_without_prior_buys_creates_virtual_lot(self):
         """
         Тест на конвертацию когда покупки были до периода отчёта.
@@ -473,7 +664,8 @@ class IBParserConversionLinksTests(SimpleTestCase):
             ]
         }
 
-        conversions = parser._parse_corporate_actions(sections)
+        conversions, acquisitions = parser._parse_corporate_actions(sections)
+        self.assertEqual(acquisitions, [])
 
         # Должна быть 1 конвертация LFCHY → LFCHY.CNV
         self.assertEqual(len(conversions), 1, "Конвертация LFCHY → LFCHY.CNV не должна фильтроваться")
@@ -482,3 +674,68 @@ class IBParserConversionLinksTests(SimpleTestCase):
         self.assertEqual(conv["new_ticker"], "LFCHY.CNV")
         self.assertEqual(conv["old_isin"], "US16939P1066")
         self.assertEqual(conv["new_isin"], "US16939P10CV")
+
+
+class IBParserWarrantCorporateActionsTests(SimpleTestCase):
+    def test_subscription_then_conversion_to_warrant_preserves_cost_basis(self):
+        parser = IBParser(request=None, user=None, target_year=2025)
+
+        acquisitions = [
+            {
+                "datetime_obj": datetime(2024, 6, 1, 10, 0, 0),
+                "ticker": "ADC.SUB8",
+                "isin": "AU0000000001",
+                "quantity": Decimal("1500"),
+                "currency": "RUB",
+                "cost": Decimal("75"),
+                "value": Decimal("0"),
+                "comment": "subscription",
+                "asset_class": "Stocks",
+                "source_ticker": "ADC.RTS8",
+                "source_isin": "AU0000000002",
+                "type": "subscription",
+            }
+        ]
+
+        conversions = [
+            {
+                "datetime_obj": datetime(2024, 7, 1, 10, 0, 0),
+                "old_ticker": "ADC.SUB8",
+                "new_ticker": "ADCO",
+                "old_qty_removed": Decimal("1500"),
+                "new_qty_received": Decimal("1500"),
+                "old_isin": "AU0000000001",
+                "new_isin": "AU0000000003",
+                "comment": "ADC.SUB8 -> ADCO",
+                "asset_class_from": "Stocks",
+                "asset_class_to": "Warrants",
+            }
+        ]
+
+        trades = [
+            _trade(
+                trade_id="SELL_ADCO",
+                operation="sell",
+                symbol="WARRANT_ADCO",
+                dt_obj=datetime(2025, 1, 10, 10, 0, 0),
+                quantity="1500",
+                price="1",
+                currency="RUB",
+                cbr_rate="1",
+                income_code="1532",
+            )
+        ]
+
+        history, _total_profit, _profit_by_code = parser._build_fifo_history(trades, conversions, acquisitions)
+
+        self.assertIn("WARRANT_ADCO", history)
+        trade_events = [
+            e for e in history["WARRANT_ADCO"] if e.get("display_type") == "trade" and e.get("event_details")
+        ]
+        details_by_id = {e["event_details"].get("trade_id"): e["event_details"] for e in trade_events}
+
+        self.assertIn("SELL_ADCO", details_by_id)
+        sell_details = details_by_id["SELL_ADCO"]
+        fifo_cost = sell_details.get("fifo_cost_rub_decimal")
+        self.assertIsNotNone(fifo_cost)
+        self.assertEqual(fifo_cost.quantize(Decimal("0.01")), Decimal("75.00"))

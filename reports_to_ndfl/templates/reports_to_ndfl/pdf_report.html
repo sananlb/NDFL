@@ -429,6 +429,7 @@
                     <th>Дата выплаты</th>
                     <th>Инструмент</th>
                     <th>Сумма дивиденда</th>
+                    <th>Итого комиссия (RUB)</th>
                     <th>Удержанный налог</th>
                     <th>Валюта</th>
                     <th>Курс ЦБ</th>
@@ -440,6 +441,7 @@
                         <td>{{ div_event.date|date:"Y-m-d" }}</td>
                         <td>{{ div_event.ticker|default:"N/A" }} ({{ div_event.instrument_name|default:'' }})</td>
                         <td class="numeric">{{ div_event.amount|floatformat:2 }}</td>
+                        <td class="numeric">{% if div_event.fee_rub %}{{ div_event.fee_rub|floatformat:2 }}{% else %}-{% endif %}</td>
                         <td class="numeric">{{ div_event.tax_amount|floatformat:2 }}</td>
                         <td>{{ div_event.currency|default:"N/A" }}</td>
                         <td class="numeric">{{ div_event.cbr_rate_str|default:"-" }}</td>
@@ -448,14 +450,10 @@
             </tbody>
         </table>
     </div>
-    {% endif %}
 
-    {% if dividend_commissions or other_commissions %}
+    {% if dividend_commissions %}
     <div class="section">
-        <h2>Прочие расходы и доходы за {{ target_report_year_for_title }} год</h2>
-
-        {% if dividend_commissions %}
-        <h4>Прочие расходы и доходы связанные с дивидендами:</h4>
+        <h3>Детализация комиссий связанных с дивидендами</h3>
         <p style="font-size: 8pt; margin-bottom: 5px;"><strong>Общая сумма: {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</strong></p>
         <table>
             <thead>
@@ -497,10 +495,14 @@
                 {% endfor %}
             </tbody>
         </table>
-        {% endif %}
+    </div>
+    {% endif %}
+    {% endif %}
 
-        {% if other_commissions %}
-        <h4>Прочие расходы и доходы:</h4>
+    {% if other_commissions %}
+    <div class="section">
+        <h2>Прочие расходы и доходы за {{ target_report_year_for_title }} год</h2>
+        {# Комиссии по дивидендам теперь отображаются в отдельном блоке после таблицы дивидендов #}
         <p style="font-size: 8pt;"><strong>Общая сумма: {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB</strong></p>
         <table>
             <thead>
@@ -538,7 +540,6 @@
                 {% endfor %}
             </tbody>
         </table>
-        {% endif %}
     </div>
     {% endif %}
 
