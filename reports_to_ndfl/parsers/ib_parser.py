@@ -659,7 +659,7 @@ class IBParser(BaseBrokerParser):
                             cost_paid = abs(amt)
                             break
 
-                acquisitions.append({
+                acq_data = {
                     'datetime_obj': receive['dt_obj'],
                     'ticker': receive.get('row_ticker') or '',
                     'isin': receive.get('row_isin') or '',
@@ -672,7 +672,9 @@ class IBParser(BaseBrokerParser):
                     'source_ticker': (matched_removal.get('row_ticker') if matched_removal else '') or '',
                     'source_isin': (matched_removal.get('row_isin') if matched_removal else '') or '',
                     'type': 'subscription',
-                })
+                }
+                print(f"[DEBUG] Creating subscription acquisition: ticker={acq_data['ticker']}, cost={cost_paid}, source={acq_data['source_ticker']}")
+                acquisitions.append(acq_data)
 
                 processed_events.add(receive_id)
                 if matched_removal:
