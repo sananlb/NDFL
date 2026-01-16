@@ -1,4 +1,5 @@
 from datetime import datetime
+from collections import defaultdict
 from decimal import Decimal
 
 from django.test import SimpleTestCase
@@ -432,6 +433,44 @@ class IBParserDividendMatchingTests(SimpleTestCase):
         self.assertTrue(report2["ok"])
         self.assertEqual(dividend_events[0].get("fee_rub"), Decimal("-120"))
 
+    def test_parse_fees_includes_adr_fee_near_target_year_dividend(self):
+        parser = IBParser(request=None, user=None, target_year=2025)
+        parser._get_cbr_rate = lambda _currency, _dt_obj: Decimal("1")
+
+        sections = {
+            "Сборы/комиссии": [
+                {
+                    "header": ["Subtitle", "Валюта", "Дата", "Описание", "Сумма"],
+                    "data": [
+                        ["Другие сборы", "USD", "2024-12-23", "HSBK(US46627J3023) Плата ADR USD 0.02 на акцию", "-5.78"],
+                        ["Другие сборы", "USD", "2024-10-01", "HSBK(US46627J3023) Плата ADR USD 0.02 на акцию", "-1.00"],
+                    ],
+                }
+            ]
+        }
+        dividend_events = [
+            {
+                "date": datetime(2025, 1, 6).date(),
+                "ticker": "HSBK",
+                "instrument_name": "US46627J3023",
+                "currency": "USD",
+                "dividend_key": "HSBK(US46627J3023) Наличный дивиденд USD 0.729142 на акцию",
+                "dividend_match_key": "2025-01-06|USD|HSBK(US46627J3023) Наличный дивиденд USD 0.729142 на акцию",
+            }
+        ]
+
+        dividend_commissions = defaultdict(
+            lambda: {"amount_by_currency": defaultdict(Decimal), "amount_rub": Decimal(0), "details": []}
+        )
+        other_commissions = defaultdict(lambda: {"currencies": defaultdict(Decimal), "total_rub": Decimal(0), "raw_events": []})
+
+        parser._parse_fees(sections, other_commissions, dividend_commissions, dividend_events=dividend_events, fee_relevance_window_days=45)
+
+        # Должна попасть только комиссия близко к дивиденду (2024-12-23), а 2024-10-01 (97 дней) — нет.
+        details = [d for cat in dividend_commissions.values() for d in cat.get("details", [])]
+        self.assertEqual(len(details), 1)
+        self.assertIn("Плата ADR", details[0].get("comment", ""))
+
     def test_conversion_without_prior_buys_creates_virtual_lot(self):
         """
         Тест на конвертацию когда покупки были до периода отчёта.
@@ -674,6 +713,71 @@ class IBParserDividendMatchingTests(SimpleTestCase):
         self.assertEqual(conv["new_ticker"], "LFCHY.CNV")
         self.assertEqual(conv["old_isin"], "US16939P1066")
         self.assertEqual(conv["new_isin"], "US16939P10CV")
+
+    def test_parse_corporate_actions_uses_symbol_column_when_description_has_only_old_ticker(self):
+        """
+        Реальный кейс IB: в строке получения новый тикер/ISIN есть в колонках Symbol/Security ID,
+        а в Description фигурирует только старый тикер (в т.ч. дублированный в скобках).
+
+        Ожидание: парсер должен построить конвертацию old->new и НЕ отфильтровать её как "техническое переименование".
+        """
+        parser = IBParser(request=None, user=None, target_year=2025)
+
+        sections = {
+            "Корпоративные действия": [
+                {
+                    "header": [
+                        "Дата/Время",
+                        "Класс актива",
+                        "Символ",
+                        "Идентификатор ценной бумаги",
+                        "Описание",
+                        "Количество",
+                        "Валюта",
+                        "Выручка",
+                        "Стоимость",
+                    ],
+                    "data": [
+                        [
+                            "2023-04-13, 07:00:00",
+                            "Stocks",
+                            "ADC.SUB8",
+                            "AU251811SUB8",
+                            "ADC.SUB8(AU251811SUB8) MERGER EVENT (ADC.SUB8, something, AU251811SUB8)",
+                            "-15000",
+                            "AUD",
+                            "0",
+                            "0",
+                        ],
+                        [
+                            "2023-04-13, 07:00:00",
+                            "Warrants",
+                            "ADCO",
+                            "AU0000271165",
+                            "ADC.SUB8(AU251811SUB8) MERGER EVENT (ADC.SUB8, something, AU251811SUB8)",
+                            "15000",
+                            "AUD",
+                            "0",
+                            "0",
+                        ],
+                    ],
+                }
+            ]
+        }
+
+        conversions, acquisitions = parser._parse_corporate_actions(sections)
+        self.assertEqual(acquisitions, [])
+        self.assertEqual(len(conversions), 1)
+
+        conv = conversions[0]
+        self.assertEqual(conv["old_ticker"], "ADC.SUB8")
+        self.assertEqual(conv["new_ticker"], "ADCO")
+        self.assertEqual(conv["old_qty_removed"], Decimal("15000"))
+        self.assertEqual(conv["new_qty_received"], Decimal("15000"))
+        self.assertEqual(conv["old_isin"], "AU251811SUB8")
+        self.assertEqual(conv["new_isin"], "AU0000271165")
+        self.assertEqual(conv.get("asset_class_from"), "Stocks")
+        self.assertEqual(conv.get("asset_class_to"), "Warrants")
 
 
 class IBParserWarrantCorporateActionsTests(SimpleTestCase):

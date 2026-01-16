@@ -429,7 +429,6 @@
                     <th>Дата выплаты</th>
                     <th>Инструмент</th>
                     <th>Сумма дивиденда</th>
-                    <th>Итого комиссия (RUB)</th>
                     <th>Удержанный налог</th>
                     <th>Валюта</th>
                     <th>Курс ЦБ</th>
@@ -441,7 +440,6 @@
                         <td>{{ div_event.date|date:"Y-m-d" }}</td>
                         <td>{{ div_event.ticker|default:"N/A" }} ({{ div_event.instrument_name|default:'' }})</td>
                         <td class="numeric">{{ div_event.amount|floatformat:2 }}</td>
-                        <td class="numeric">{% if div_event.fee_rub %}{{ div_event.fee_rub|floatformat:2 }}{% else %}-{% endif %}</td>
                         <td class="numeric">{{ div_event.tax_amount|floatformat:2 }}</td>
                         <td>{{ div_event.currency|default:"N/A" }}</td>
                         <td class="numeric">{{ div_event.cbr_rate_str|default:"-" }}</td>

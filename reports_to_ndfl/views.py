@@ -520,10 +520,7 @@ def upload_xml_file(request):
                 Decimal(0)
             )
 
-            fee_matching_report = _attach_dividend_fees(dividend_events, dividend_commissions_data)
-            if fee_matching_report and not fee_matching_report.get('ok', True):
-                for issue in fee_matching_report.get('issues', []):
-                    messages.error(request, f"Проблема сопоставления комиссий по дивидендам: {issue}")
+            fee_matching_report = None
 
             context['instrument_history_1530'] = instrument_history_1530
             context['instrument_history_1532'] = instrument_history_1532
@@ -628,7 +625,7 @@ def download_pdf(request):
         Decimal(0)
     )
 
-    fee_matching_report = _attach_dividend_fees(dividend_events, dividend_commissions_data)
+    fee_matching_report = None
 
     # Контекст для PDF шаблона (БЕЗ информации о пользователе)
     context = {
