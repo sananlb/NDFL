@@ -34,11 +34,13 @@ class IBParser(BaseBrokerParser):
         symbol_to_isin, symbol_to_name, symbol_to_multiplier = self._parse_instrument_info(sections)
         trades = self._parse_trades(sections, other_commissions, symbol_to_isin, symbol_to_name, symbol_to_multiplier)
         dividends = self._parse_dividends(sections)
-        conversions = self._parse_corporate_actions(sections, symbol_to_name)
+        conversions, acquisitions = self._parse_corporate_actions(sections, symbol_to_name)
         self._parse_interest(sections, other_commissions)
         self._parse_fees(sections, other_commissions, dividend_commissions)
 
-        instrument_event_history, total_sales_profit, profit_by_income_code = self._build_fifo_history(trades, conversions, symbol_to_isin, symbol_to_name)
+        instrument_event_history, total_sales_profit, profit_by_income_code = self._build_fifo_history(
+            trades, conversions, acquisitions, symbol_to_isin, symbol_to_name
+        )
 
         total_other_commissions_rub = sum((data.get('total_rub', Decimal(0)) for data in other_commissions.values()), Decimal(0))
         total_dividends_rub = sum((d.get('amount_rub', Decimal(0)) for d in dividends), Decimal(0))
@@ -440,133 +442,258 @@ class IBParser(BaseBrokerParser):
         return f"{dt_value.isoformat()}|{currency_code}|{normalized_description}"
 
     def _parse_corporate_actions(self, sections, symbol_to_name=None):
+        """Парсит корпоративные действия.
+
+        Возвращает кортеж (conversions, acquisitions):
+        - conversions: конвертации одного инструмента в другой (с переносом стоимости)
+        - acquisitions: получения инструментов через корп. действия (выдача прав, подписка)
+        """
         if symbol_to_name is None:
             symbol_to_name = {}
         corp_blocks = sections.get('Корпоративные действия') or []
         if not corp_blocks:
-            return []
+            return [], []
 
-        # Группируем все корпоративные действия по дате и первому тикеру
-        temp_conversions = defaultdict(list)
+        # Парсим все корп. действия с полной информацией
+        all_events = []
         for block in corp_blocks:
             header_map = self._header_map(block.get('header', []))
             for row in block.get('data', []):
+                asset_class = self._get_value(row, header_map, ['Класс актива', 'Asset Class'])
+                # Пропускаем итоговые строки
+                if asset_class in ('Всего', 'Всего в USD', 'Total', 'Total in USD'):
+                    continue
+
                 description = self._get_value(row, header_map, ['Описание', 'Description'])
                 quantity = self._parse_decimal(self._get_value(row, header_map, ['Количество', 'Quantity']))
                 date_raw = self._get_value(row, header_map, ['Дата/Время', 'Date/Time'])
+                currency = self._get_value(row, header_map, ['Валюта', 'Currency']).upper()
+                proceeds = self._parse_decimal(self._get_value(row, header_map, ['Выручка', 'Proceeds']))
+                value = self._parse_decimal(self._get_value(row, header_map, ['Стоимость', 'Value']))
+
                 dt_obj = self._parse_datetime(date_raw)
                 if not dt_obj or quantity == 0:
                     continue
+
                 # Ищем паттерны: TICKER(ISIN) и (TICKER, описание, ISIN)
                 pairs = re.findall(r'([A-Z0-9\\.]+)\(([A-Z0-9]{12})\)', description or '')
-                # Дополнительно ищем альтернативный формат: (TICKER, ..., ISIN)
                 alt_pairs = re.findall(r'\(([A-Z0-9\\.]+),\s*[^,]+,\s*([A-Z0-9]{12})\)', description or '')
                 pairs.extend(alt_pairs)
                 if len(pairs) < 1:
                     continue
 
-                # Первый тикер - это всегда старый инструмент
-                old_ticker, old_isin = pairs[0]
-                # Группируем по дате и старому тикеру
-                key = (dt_obj.date(), old_ticker, old_isin)
-                temp_conversions[key].append({
+                # Определяем тип события по описанию
+                desc_lower = (description or '').lower()
+                is_rights_issue = 'выдача прав' in desc_lower or 'rights issue' in desc_lower
+                is_subscription = 'подписка' in desc_lower or 'subscription' in desc_lower
+                is_merger = 'слияние' in desc_lower or 'merger' in desc_lower
+                is_spinoff = 'спин-офф' in desc_lower or 'spin-off' in desc_lower or 'spinoff' in desc_lower
+
+                # Первый тикер в описании - источник, последний в скобках - результат
+                source_ticker, source_isin = pairs[0]
+                result_ticker, result_isin = pairs[-1] if len(pairs) >= 2 else pairs[0]
+
+                all_events.append({
+                    'dt_obj': dt_obj,
+                    'date': dt_obj.date(),
+                    'asset_class': asset_class,
+                    'currency': currency,
                     'description': description,
                     'quantity': quantity,
+                    'proceeds': proceeds,
+                    'value': value,
+                    'source_ticker': source_ticker,
+                    'source_isin': source_isin,
+                    'result_ticker': result_ticker,
+                    'result_isin': result_isin,
+                    'is_rights_issue': is_rights_issue,
+                    'is_subscription': is_subscription,
+                    'is_merger': is_merger,
+                    'is_spinoff': is_spinoff,
                     'pairs': pairs,
-                    'dt_obj': dt_obj,
                 })
 
-        # Обрабатываем сгруппированные конвертации
-        conversion_map = {}
-        for key, items in temp_conversions.items():
-            date, old_ticker, old_isin = key
-            old_qty_removed = Decimal(0)
-            new_ticker = None
-            new_isin = None
-            new_qty_received = Decimal(0)
-            dt_obj = None
-            comment = ''
+        # Группируем события по дате и нормализованному описанию для связывания пар
+        # Ключ: (дата, базовое описание без конкретного тикера результата)
+        def normalize_description(desc):
+            """Извлекаем базовое описание для связывания событий."""
+            # Убираем последние скобки с результатом
+            match = re.match(r'^(.+?)\s*\([^()]+\)\s*$', desc or '')
+            return match.group(1).strip() if match else (desc or '').strip()
 
-            for item in items:
-                dt_obj = item['dt_obj']
-                quantity = item['quantity']
-                pairs = item['pairs']
-                comment = item['description']
+        events_by_base = defaultdict(list)
+        for ev in all_events:
+            base_desc = normalize_description(ev['description'])
+            key = (ev['date'], base_desc)
+            events_by_base[key].append(ev)
 
-                if quantity < 0:
-                    # Списание старых акций
-                    old_qty_removed += abs(quantity)
-                else:
-                    # Получение новых акций
-                    new_qty_received += quantity
-                    # Новый тикер берём из последней пары
-                    if len(pairs) >= 2:
-                        new_ticker, new_isin = pairs[-1]
+        # Собираем конвертации и приобретения
+        conversions = []
+        acquisitions = []
+        processed_events = set()
 
-            # Если не нашли новый тикер, пропускаем
-            if not new_ticker or old_ticker == new_ticker:
-                continue
+        for key, events in events_by_base.items():
+            date, base_desc = key
 
-            # Пропускаем технические смены тикеров (суффиксы .RTS8, .SUB8 и т.д.)
-            # Проверяем несколько случаев:
-            is_technical_rename = False
+            # Разделяем на списания (qty < 0) и получения (qty > 0)
+            removals = [e for e in events if e['quantity'] < 0]
+            receives = [e for e in events if e['quantity'] > 0]
 
-            # 1. Приоритетная проверка: если полное название инструмента не меняется И количество не меняется - это не конвертация
-            old_company_name = symbol_to_name.get(old_ticker, '').strip()
-            new_company_name = symbol_to_name.get(new_ticker, '').strip()
-            if old_company_name and new_company_name and old_company_name == new_company_name:
-                # Названия инструментов точно совпадают
-                if old_qty_removed > 0 and new_qty_received > 0:
-                    change_ratio = abs(1 - (new_qty_received / old_qty_removed))
-                    if change_ratio < Decimal('0.01'):  # менее 1% изменения количества
-                        is_technical_rename = True
+            # Случай 1: Есть и списание и получение - это конвертация
+            if removals and receives:
+                for removal in removals:
+                    removal_id = id(removal)
+                    if removal_id in processed_events:
+                        continue
 
-            # 2. По паттерну тикеров: новый тикер = старый тикер + суффикс
-            if not is_technical_rename and new_ticker.startswith(old_ticker + '.'):
-                # Новый тикер начинается со старого + точка (например, ADC → ADC.RTS8)
-                # НО если ISIN меняется - это реальная конвертация
+                    old_ticker = removal['result_ticker']
+                    old_isin = removal['result_isin']
+                    old_qty = abs(removal['quantity'])
+
+                    # Ищем соответствующее получение
+                    for receive in receives:
+                        receive_id = id(receive)
+                        if receive_id in processed_events:
+                            continue
+
+                        new_ticker = receive['result_ticker']
+                        new_isin = receive['result_isin']
+                        new_qty = receive['quantity']
+
+                        # Пропускаем если тикеры одинаковые
+                        if old_ticker == new_ticker:
+                            continue
+
+                        # Проверяем, не техническая ли это смена тикера
+                        is_technical = self._is_technical_rename(
+                            old_ticker, new_ticker, old_isin, new_isin,
+                            old_qty, new_qty, symbol_to_name
+                        )
+                        if is_technical:
+                            continue
+
+                        # Это реальная конвертация
+                        conversions.append({
+                            'datetime_obj': removal['dt_obj'],
+                            'old_ticker': old_ticker,
+                            'new_ticker': new_ticker,
+                            'old_isin': old_isin,
+                            'new_isin': new_isin,
+                            'old_qty_removed': old_qty,
+                            'new_qty_received': new_qty,
+                            'currency': removal['currency'],
+                            'proceeds': removal['proceeds'],
+                            'value': receive['value'],
+                            'comment': removal['description'],
+                            'asset_class_from': removal['asset_class'],
+                            'asset_class_to': receive['asset_class'],
+                        })
+                        processed_events.add(removal_id)
+                        processed_events.add(receive_id)
+                        break
+
+            # Случай 2: Только получение без списания - это выдача прав или spin-off
+            for receive in receives:
+                receive_id = id(receive)
+                if receive_id in processed_events:
+                    continue
+
+                # Это acquisition (получение нового инструмента)
+                # Выдача прав, spin-off - обычно бесплатно
+                if receive['is_rights_issue'] or receive['is_spinoff']:
+                    acquisitions.append({
+                        'datetime_obj': receive['dt_obj'],
+                        'ticker': receive['result_ticker'],
+                        'isin': receive['result_isin'],
+                        'quantity': receive['quantity'],
+                        'currency': receive['currency'],
+                        'cost': Decimal(0),  # Бесплатно получено
+                        'value': receive['value'],
+                        'comment': receive['description'],
+                        'asset_class': receive['asset_class'],
+                        'source_ticker': receive['source_ticker'],
+                        'source_isin': receive['source_isin'],
+                        'type': 'rights_issue' if receive['is_rights_issue'] else 'spinoff',
+                    })
+                    processed_events.add(receive_id)
+
+        # Случай 3: Подписка - ищем пары (списание прав + получение подписки)
+        # Группируем по дате для поиска связанных событий подписки
+        events_by_date = defaultdict(list)
+        for ev in all_events:
+            if id(ev) not in processed_events:
+                events_by_date[ev['date']].append(ev)
+
+        for date, events in events_by_date.items():
+            subscription_removals = [e for e in events if e['is_subscription'] and e['quantity'] < 0]
+            subscription_receives = [e for e in events if e['is_subscription'] and e['quantity'] > 0]
+
+            for removal in subscription_removals:
+                removal_id = id(removal)
+                if removal_id in processed_events:
+                    continue
+
+                # Списание прав при подписке
+                cost_paid = abs(removal['proceeds']) if removal['proceeds'] < 0 else Decimal(0)
+
+                for receive in subscription_receives:
+                    receive_id = id(receive)
+                    if receive_id in processed_events:
+                        continue
+
+                    # Получение подписочных акций/прав
+                    acquisitions.append({
+                        'datetime_obj': receive['dt_obj'],
+                        'ticker': receive['result_ticker'],
+                        'isin': receive['result_isin'],
+                        'quantity': receive['quantity'],
+                        'currency': receive['currency'],
+                        'cost': cost_paid,  # Оплаченная сумма
+                        'value': receive['value'],
+                        'comment': receive['description'],
+                        'asset_class': receive['asset_class'],
+                        'source_ticker': removal['result_ticker'],
+                        'source_isin': removal['result_isin'],
+                        'type': 'subscription',
+                    })
+                    processed_events.add(removal_id)
+                    processed_events.add(receive_id)
+                    break
+
+        return conversions, acquisitions
+
+    def _is_technical_rename(self, old_ticker, new_ticker, old_isin, new_isin, old_qty, new_qty, symbol_to_name):
+        """Проверяет, является ли изменение техническим переименованием тикера."""
+        # 1. Если названия инструментов совпадают и количество почти не меняется
+        old_name = symbol_to_name.get(old_ticker, '').strip()
+        new_name = symbol_to_name.get(new_ticker, '').strip()
+        if old_name and new_name and old_name == new_name:
+            if old_qty > 0 and new_qty > 0:
+                change_ratio = abs(1 - (new_qty / old_qty))
+                if change_ratio < Decimal('0.01'):
+                    return True
+
+        # 2. Новый тикер = старый + суффикс, и ISIN не меняется
+        if new_ticker.startswith(old_ticker + '.'):
+            if not (old_isin and new_isin and old_isin != new_isin):
+                return True
+
+        # 3. Количество не меняется и ISIN не меняется
+        if old_qty > 0 and new_qty > 0:
+            qty_diff = abs(old_qty - new_qty)
+            isin_changed = old_isin and new_isin and old_isin != new_isin
+            if qty_diff < Decimal('0.01') and not isin_changed:
+                return True
+
+        # 4. Один тикер содержится в другом, количество почти не меняется, ISIN не меняется
+        if old_ticker in new_ticker or new_ticker in old_ticker:
+            if old_qty > 0 and new_qty > 0:
+                change_ratio = abs(1 - (new_qty / old_qty))
                 isin_changed = old_isin and new_isin and old_isin != new_isin
-                if not isin_changed:
-                    is_technical_rename = True
+                if change_ratio < Decimal('0.10') and not isin_changed:
+                    return True
 
-            # 3. По количеству: если количество не меняется И ISIN не меняется
-            if not is_technical_rename and old_qty_removed > 0 and new_qty_received > 0:
-                ratio = abs(old_qty_removed - new_qty_received)
-                # Если ISIN меняется - это реальная конвертация, даже если количество то же
-                isin_changed = old_isin and new_isin and old_isin != new_isin
-                if ratio < Decimal('0.01') and not isin_changed:
-                    is_technical_rename = True
-
-            # 4. По сходству тикеров: один тикер содержится в другом (например, RAC → RACAU)
-            if not is_technical_rename and (old_ticker in new_ticker or new_ticker in old_ticker):
-                # Проверяем, что количество не сильно меняется И ISIN не меняется
-                if old_qty_removed > 0 and new_qty_received > 0:
-                    change_ratio = abs(1 - (new_qty_received / old_qty_removed))
-                    isin_changed = old_isin and new_isin and old_isin != new_isin
-                    if change_ratio < Decimal('0.10') and not isin_changed:  # менее 10% изменения
-                        is_technical_rename = True
-
-            # 5. Если нет данных о списании старых акций - это техническое переименование тикера
-            if not is_technical_rename and old_qty_removed == 0:
-                is_technical_rename = True
-
-            # Пропускаем технические смены тикеров
-            if is_technical_rename:
-                continue
-
-            conv_key = (date, old_ticker, new_ticker, old_isin, new_isin)
-            conversion_map[conv_key] = {
-                'datetime_obj': dt_obj,
-                'old_ticker': old_ticker,
-                'new_ticker': new_ticker,
-                'old_isin': old_isin,
-                'new_isin': new_isin,
-                'old_qty_removed': old_qty_removed,
-                'new_qty_received': new_qty_received,
-                'comment': comment,
-            }
-
-        return list(conversion_map.values())
+        return False
 
     def _record_commission_from_trade(self, row, header_map, other_commissions):
         currency = self._get_value(row, header_map, ['Валюта', 'Currency']).upper()
@@ -677,7 +804,7 @@ class IBParser(BaseBrokerParser):
             'dividend_match_key': dividend_match_key,  # Точный ключ (дата+валюта+описание)
         })
 
-    def _build_fifo_history(self, trades, conversions, symbol_to_isin=None, symbol_to_name=None):
+    def _build_fifo_history(self, trades, conversions, acquisitions=None, symbol_to_isin=None, symbol_to_name=None):
         buy_lots = defaultdict(deque)
         short_sales = defaultdict(deque)
         instrument_events = defaultdict(list)
@@ -686,6 +813,8 @@ class IBParser(BaseBrokerParser):
         used_buy_ids_for_target_year = set()
         total_sales_profit_rub = Decimal(0)
 
+        if acquisitions is None:
+            acquisitions = []
         if symbol_to_isin is None:
             symbol_to_isin = {}
         if symbol_to_name is None:
@@ -704,16 +833,35 @@ class IBParser(BaseBrokerParser):
             if new_ticker and new_isin and new_ticker not in symbol_to_isin:
                 symbol_to_isin[new_ticker] = new_isin
 
+        # Дополняем symbol_to_isin из acquisitions
+        for acq in acquisitions:
+            ticker = acq.get('ticker', '')
+            isin = acq.get('isin', '')
+            if ticker and isin and ticker not in symbol_to_isin:
+                symbol_to_isin[ticker] = isin
+
+        # Объединяем все события (сделки, конвертации, acquisitions) и сортируем по дате
         conversions_by_date = sorted(conversions, key=lambda x: x.get('datetime_obj') or datetime.min)
+        acquisitions_by_date = sorted(acquisitions, key=lambda x: x.get('datetime_obj') or datetime.min)
         conversion_idx = 0
+        acquisition_idx = 0
 
         for trade in trades:
+            # Обрабатываем конвертации, которые произошли до текущей сделки
             while conversion_idx < len(conversions_by_date):
                 conv = conversions_by_date[conversion_idx]
                 if trade.get('datetime_obj') and conv['datetime_obj'] > trade['datetime_obj']:
                     break
                 self._apply_conversion(conv, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
                 conversion_idx += 1
+
+            # Обрабатываем acquisitions (получения через корп. действия), которые произошли до текущей сделки
+            while acquisition_idx < len(acquisitions_by_date):
+                acq = acquisitions_by_date[acquisition_idx]
+                if trade.get('datetime_obj') and acq['datetime_obj'] > trade['datetime_obj']:
+                    break
+                self._apply_acquisition(acq, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
+                acquisition_idx += 1
 
             dt_obj = trade.get('datetime_obj')
             symbol = trade.get('group_symbol') or trade.get('symbol') or 'UNKNOWN'
@@ -843,10 +991,17 @@ class IBParser(BaseBrokerParser):
                     if last_short.get('sell_id') == event_details['trade_id']:
                         last_short['sell_details'] = event_details
 
+        # Обрабатываем оставшиеся конвертации после всех сделок
         while conversion_idx < len(conversions_by_date):
             conv = conversions_by_date[conversion_idx]
-            self._apply_conversion(conv, buy_lots, instrument_events)
+            self._apply_conversion(conv, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
             conversion_idx += 1
+
+        # Обрабатываем оставшиеся acquisitions после всех сделок
+        while acquisition_idx < len(acquisitions_by_date):
+            acq = acquisitions_by_date[acquisition_idx]
+            self._apply_acquisition(acq, buy_lots, instrument_events, symbol_to_isin, symbol_to_name)
+            acquisition_idx += 1
 
         for symbol, events in instrument_events.items():
             for event in events:
@@ -1132,10 +1287,21 @@ class IBParser(BaseBrokerParser):
         if symbol_to_name is None:
             symbol_to_name = {}
 
-        old_symbol = conv['old_ticker']
-        new_symbol = conv['new_ticker']
+        old_ticker = conv['old_ticker']
+        new_ticker = conv['new_ticker']
         old_qty_removed = conv['old_qty_removed']
         new_qty_received = conv['new_qty_received']
+
+        # Определяем group_symbol с учётом класса актива
+        # Для варрантов добавляем префикс WARRANT_
+        asset_class_to = conv.get('asset_class_to', '')
+        if asset_class_to in ('Варранты', 'Warrants'):
+            new_symbol = f"WARRANT_{new_ticker}"
+        else:
+            new_symbol = new_ticker
+
+        # Старый символ - ищем как есть (без префикса для обычных акций/прав)
+        old_symbol = old_ticker
 
         # Рассчитываем соотношение конвертации (ratio)
         # Например: 1500 old -> 150 new, ratio = 150/1500 = 0.1 (10:1 reverse split)
@@ -1222,15 +1388,83 @@ class IBParser(BaseBrokerParser):
             'datetime_obj': conv['datetime_obj'],
             'event_details': {
                 'corp_action_id': None,
-                'old_ticker': old_symbol,
+                'old_ticker': old_ticker,
                 'old_isin': conv['old_isin'],
-                'old_instr_nm': symbol_to_name.get(old_symbol, old_symbol),
-                'new_ticker': new_symbol,
+                'old_instr_nm': symbol_to_name.get(old_ticker, old_ticker),
+                'new_ticker': new_ticker,
                 'new_isin': conv['new_isin'],
-                'new_instr_nm': symbol_to_name.get(new_symbol, new_symbol),
+                'new_instr_nm': symbol_to_name.get(new_ticker, new_ticker),
                 'old_quantity_removed': old_qty_removed,
                 'new_quantity_received': new_qty_received,
                 'ratio_comment': conv.get('comment', ''),
                 'is_relevant_for_target_year': False,
+                'asset_class_from': conv.get('asset_class_from', ''),
+                'asset_class_to': asset_class_to,
+            },
+        })
+
+    def _apply_acquisition(self, acq, buy_lots, instrument_events, symbol_to_isin=None, symbol_to_name=None):
+        """Обрабатывает acquisition - получение инструмента через корп. действие.
+
+        Создаёт лот для полученного инструмента и добавляет событие в историю.
+        Типы acquisitions:
+        - rights_issue: выдача прав (бесплатно)
+        - spinoff: спин-офф (бесплатно)
+        - subscription: подписка (оплачено)
+        """
+        if symbol_to_isin is None:
+            symbol_to_isin = {}
+        if symbol_to_name is None:
+            symbol_to_name = {}
+
+        ticker = acq.get('ticker', '')
+        isin = acq.get('isin', '')
+        quantity = acq.get('quantity', Decimal(0))
+        currency = acq.get('currency', 'USD')
+        cost = acq.get('cost', Decimal(0))  # Стоимость приобретения (0 для бесплатных)
+        dt_obj = acq.get('datetime_obj')
+        acq_type = acq.get('type', 'unknown')
+        source_ticker = acq.get('source_ticker', '')
+        asset_class = acq.get('asset_class', '')
+
+        # Определяем group_symbol (для варрантов добавляем префикс)
+        group_symbol = ticker
+        if asset_class in ('Варранты', 'Warrants'):
+            group_symbol = f"WARRANT_{ticker}"
+
+        # Рассчитываем стоимость в рублях
+        cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
+        cost_rub = (cost * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
+        cost_per_share_rub = (cost_rub / quantity) if quantity else Decimal(0)
+
+        # Генерируем уникальный ID для лота
+        lot_id = f"ACQ_{ticker}_{dt_obj.strftime('%Y%m%d%H%M%S') if dt_obj else 'unknown'}_{acq_type}"
+
+        # Создаём лот
+        buy_lots[group_symbol].append({
+            'q_remaining': quantity,
+            'cost_per_share_rub': cost_per_share_rub,
+            'lot_id': lot_id,
+            'source_lot_ids': [lot_id],
+        })
+
+        # Добавляем событие в историю для отображения
+        instrument_events[group_symbol].append({
+            'display_type': 'acquisition_info',
+            'datetime_obj': dt_obj,
+            'event_details': {
+                'ticker': ticker,
+                'isin': isin,
+                'instr_nm': symbol_to_name.get(ticker, ticker),
+                'quantity': quantity,
+                'currency': currency,
+                'cost': cost,
+                'cost_rub': cost_rub,
+                'cbr_rate': cbr_rate,
+                'acquisition_type': acq_type,
+                'source_ticker': source_ticker,
+                'comment': acq.get('comment', ''),
+                'is_relevant_for_target_year': False,
+                'lot_id': lot_id,
             },
         })
