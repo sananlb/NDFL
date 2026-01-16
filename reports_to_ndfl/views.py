@@ -507,9 +507,9 @@ def upload_xml_file(request):
 
             for key in sorted(instrument_event_history.keys()):
                 events = instrument_event_history[key]
-                # Проверяем код дохода первой сделки в списке событий
-                is_option = key.startswith('OPTION_')
-                if is_option:
+                # Проверяем код дохода: ПФИ = опционы (OPTION_) и варранты (WARRANT_)
+                is_pfi = key.startswith('OPTION_') or key.startswith('WARRANT_')
+                if is_pfi:
                     instrument_history_1532[key] = events
                 else:
                     instrument_history_1530[key] = events
@@ -599,8 +599,8 @@ def download_pdf(request):
 
     for key in sorted(instrument_event_history.keys()):
         events = instrument_event_history[key]
-        is_option = key.startswith('OPTION_')
-        if is_option:
+        is_pfi = key.startswith('OPTION_') or key.startswith('WARRANT_')
+        if is_pfi:
             instrument_history_1532[key] = events
         else:
             instrument_history_1530[key] = events
