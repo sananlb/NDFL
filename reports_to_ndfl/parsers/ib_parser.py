@@ -36,7 +36,7 @@ class IBParser(BaseBrokerParser):
         dividends = self._parse_dividends(sections)
         conversions, acquisitions = self._parse_corporate_actions(sections, symbol_to_name)
         self._parse_interest(sections, other_commissions)
-        self._parse_fees(sections, other_commissions, dividend_commissions, dividend_events=dividends)
+        self._parse_fees(sections, other_commissions, dividend_commissions)
 
         instrument_event_history, total_sales_profit, profit_by_income_code = self._build_fifo_history(
             trades, conversions, acquisitions, symbol_to_isin, symbol_to_name
@@ -348,7 +348,7 @@ class IBParser(BaseBrokerParser):
         dividends.sort(key=lambda x: (x.get('date') or date.min, x.get('ticker') or ''))
         return dividends
 
-    def _parse_fees(self, sections, other_commissions, dividend_commissions, dividend_events=None, fee_relevance_window_days=45):
+    def _parse_fees(self, sections, other_commissions, dividend_commissions):
         """Парсит секцию Сборы/комиссии.
 
         ADR fees и комиссии связанные с дивидендами идут в dividend_commissions.
@@ -357,34 +357,6 @@ class IBParser(BaseBrokerParser):
         fee_blocks = sections.get('Сборы/комиссии') or []
         if not fee_blocks:
             return
-
-        dividends_by_ticker_currency = defaultdict(list)
-        dividends_by_isin_currency = defaultdict(list)
-        dividend_keys_in_target_year = set()
-        if dividend_events:
-            for d in dividend_events:
-                ticker = (d.get('ticker') or '').upper()
-                currency = (d.get('currency') or '').upper()
-                isin = (d.get('instrument_name') or '').upper()
-                if ticker and currency and d.get('date'):
-                    dividends_by_ticker_currency[(ticker, currency)].append(d.get('date'))
-                if isin and currency and d.get('date'):
-                    dividends_by_isin_currency[(isin, currency)].append(d.get('date'))
-                if d.get('dividend_key'):
-                    dividend_keys_in_target_year.add(d['dividend_key'])
-
-        def _min_days_to_any(dividend_dates, fee_date):
-            if not dividend_dates or not fee_date:
-                return None
-            best = None
-            for d in dividend_dates:
-                if not d:
-                    continue
-                delta = abs((d - fee_date).days)
-                if best is None or delta < best:
-                    best = delta
-            return best
-
         for block in fee_blocks:
             header_map = self._header_map(block.get('header', []))
             for row in block.get('data', []):
@@ -394,45 +366,24 @@ class IBParser(BaseBrokerParser):
                 description = self._get_value(row, header_map, ['Описание', 'Description'])
                 amount = self._parse_decimal(self._get_value(row, header_map, ['Сумма', 'Amount']))
                 dt_obj = self._parse_datetime(date_raw)
-                if not dt_obj or amount == 0:
+                if not dt_obj or dt_obj.year != self.target_year or amount == 0:
                     continue
 
                 # Проверяем, связана ли комиссия с дивидендами
                 # Примеры: "HSBK(...) Наличный дивиденд USD 2.258938 на акцию - FEE"
                 desc_lower = (description or '').lower()
                 is_dividend_related = (
-                    'дивиденд' in desc_lower
+                    bool(re.search(r'\s*-\s*FEE\s*$', description or '', flags=re.IGNORECASE))
+                    or 'дивиденд' in desc_lower
                     or 'dividend' in desc_lower
-                    or 'adr' in desc_lower
                 )
 
                 if is_dividend_related:
                     # Извлекаем тикер и ISIN из описания для категории
                     ticker, isin = self._extract_symbol_isin(description)
-                    category = f"Комиссия по дивидендам ({ticker})" if ticker else "Комиссии по дивидендам"
+                    category = ticker or "Комиссии по дивидендам"
                     dividend_key = self._normalize_dividend_description(description)
                     dividend_match_key = self._make_dividend_match_key(dt_obj.date(), currency, dividend_key)
-
-                    # Фильтрация релевантности к целевому году:
-                    # берём только то, что можно сопоставить с дивидендами целевого года по тикеру/ISIN/описанию,
-                    # при этом допускаем погрешность даты на границах года.
-                    if dividend_events:
-                        if dividend_key and dividend_key in dividend_keys_in_target_year:
-                            pass
-                        elif ticker and currency and dividends_by_ticker_currency.get((ticker, currency)):
-                            min_days = _min_days_to_any(dividends_by_ticker_currency[(ticker, currency)], dt_obj.date())
-                            if min_days is None or min_days > fee_relevance_window_days:
-                                continue
-                        elif isin and currency and dividends_by_isin_currency.get((isin, currency)):
-                            min_days = _min_days_to_any(dividends_by_isin_currency[(isin, currency)], dt_obj.date())
-                            if min_days is None or min_days > fee_relevance_window_days:
-                                continue
-                        else:
-                            continue
-                    else:
-                        if dt_obj.year != self.target_year:
-                            continue
-
                     self._add_dividend_commission(
                         dividend_commissions,
                         category,
@@ -445,8 +396,6 @@ class IBParser(BaseBrokerParser):
                         dividend_match_key,
                     )
                 else:
-                    if dt_obj.year != self.target_year:
-                        continue
                     self._add_other_commission(other_commissions, subtitle, amount, currency, dt_obj, description)
 
     def _parse_interest(self, sections, other_commissions):
@@ -553,11 +502,14 @@ class IBParser(BaseBrokerParser):
                     continue
 
                 # Определяем тип события по описанию
-                desc_lower = (description or '').lower()
-                is_rights_issue = 'выдача прав' in desc_lower or 'rights issue' in desc_lower
-                is_subscription = 'подписка' in desc_lower or 'subscription' in desc_lower
-                is_merger = 'слияние' in desc_lower or 'merger' in desc_lower
-                is_spinoff = 'спин-офф' in desc_lower or 'spin-off' in desc_lower or 'spinoff' in desc_lower
+                # Убираем последние скобки с названием инструмента, чтобы не путать
+                # слова типа "SUBSCRIPTION" в названии с типом действия "Подписка"
+                action_part = re.sub(r'\s*\([^()]+\)\s*$', '', description or '')
+                action_lower = action_part.lower()
+                is_rights_issue = 'выдача прав' in action_lower or 'rights issue' in action_lower
+                is_subscription = 'подписка' in action_lower or 'subscription' in action_lower
+                is_merger = 'слияние' in action_lower or 'merger' in action_lower
+                is_spinoff = 'спин-офф' in action_lower or 'spin-off' in action_lower or 'spinoff' in action_lower
 
                 # Определяем "тикер строки" (какой инструмент именно списан/получен в этой записи).
                 # В реальном IB CSV он есть в колонке "Символ". Если колонки нет (например, в тестах),
