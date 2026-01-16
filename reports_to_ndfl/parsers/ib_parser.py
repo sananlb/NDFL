@@ -670,11 +670,47 @@ class IBParser(BaseBrokerParser):
                 'asset_class_to': '',
             })
 
+            # Сначала собираем события конвертации, разделяя на "с тикерами" и "без тикеров"
+            conversion_events = []
             for ev in events:
                 if id(ev) in processed_events:
                     continue
                 if ev.get('is_subscription') or ev.get('is_rights_issue') or ev.get('is_spinoff'):
                     continue
+                conversion_events.append(ev)
+
+            # Находим строки получения с разными тикерами (они содержат информацию о конвертации)
+            receives_with_tickers = []
+            removals_without_tickers = []
+            for ev in conversion_events:
+                old_ticker = ev.get('old_ticker')
+                new_ticker = ev.get('new_ticker')
+                qty = ev.get('quantity', Decimal(0))
+                has_valid_tickers = old_ticker and new_ticker and old_ticker != new_ticker
+
+                if has_valid_tickers:
+                    receives_with_tickers.append(ev)
+                elif qty < 0:
+                    # Строка списания без валидных тикеров - попробуем связать с получением
+                    removals_without_tickers.append(ev)
+
+            # Связываем строки списания без тикеров со строками получения по row_ticker
+            for removal in removals_without_tickers:
+                removal_ticker = removal.get('row_ticker')
+                if not removal_ticker:
+                    continue
+                # Ищем строку получения, где old_ticker совпадает с тикером списания
+                for receive in receives_with_tickers:
+                    if receive.get('old_ticker') == removal_ticker:
+                        # Нашли пару - копируем тикеры из получения в списание
+                        removal['old_ticker'] = receive.get('old_ticker')
+                        removal['new_ticker'] = receive.get('new_ticker')
+                        removal['old_isin'] = receive.get('old_isin')
+                        removal['new_isin'] = receive.get('new_isin')
+                        break
+
+            # Теперь обрабатываем все события конвертации
+            for ev in conversion_events:
                 old_ticker = ev.get('old_ticker')
                 new_ticker = ev.get('new_ticker')
                 old_isin = ev.get('old_isin')

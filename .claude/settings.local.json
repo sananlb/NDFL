@@ -28,7 +28,8 @@
       "Bash(grep:*)",
       "Bash(ssh:*)",
       "Bash(python -m py_compile:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(python:*)"
     ],
     "deny": []
   }
