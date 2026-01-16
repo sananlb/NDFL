@@ -1259,8 +1259,14 @@ class IBParser(BaseBrokerParser):
             relevant_symbols_for_display.add(sold_symbol)
 
             # Идем назад по цепочке конвертаций
+            # Для варрантов (WARRANT_XXX) также проверяем символ без префикса
             temp_symbol = sold_symbol
-            visited = {temp_symbol}
+            if temp_symbol.startswith('WARRANT_') and temp_symbol not in conversion_map_new_to_old:
+                base_symbol = temp_symbol[8:]  # Убираем 'WARRANT_'
+                if base_symbol in conversion_map_new_to_old:
+                    temp_symbol = base_symbol
+                    relevant_symbols_for_display.add(temp_symbol)
+            visited = {temp_symbol, sold_symbol}
             while temp_symbol in conversion_map_new_to_old:
                 prev_symbol = conversion_map_new_to_old[temp_symbol]
                 if prev_symbol == temp_symbol or prev_symbol in visited:
@@ -1409,6 +1415,12 @@ class IBParser(BaseBrokerParser):
                                     temp_visited.add(next_sym)
                                 grouping_key = temp_key
                                 break
+
+                # Проверяем, есть ли группа с префиксом WARRANT_ для этого символа
+                # (варранты группируются с префиксом WARRANT_)
+                warrant_key = f"WARRANT_{grouping_key}"
+                if warrant_key in symbols_with_sales_in_target_year:
+                    grouping_key = warrant_key
 
                 filtered_history[grouping_key].append(event)
 
