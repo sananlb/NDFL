@@ -6,7 +6,7 @@ from django.http import HttpResponse
 from django.template.loader import render_to_string
 import xml.etree.ElementTree as ET
 from datetime import datetime, date
-from collections import defaultdict
+from collections import defaultdict, Counter
 from decimal import Decimal
 from django.contrib.auth.decorators import login_required
 from .models import BrokerReport
@@ -286,6 +286,14 @@ def delete_xml_file(request, file_id):
 def upload_xml_file(request):
     user = request.user
 
+    # Включение/выключение debug режима через GET-параметр (сохраняем в сессии,
+    # чтобы он действовал на следующий тяжёлый прогон парсинга после редиректа).
+    if request.method == 'GET' and 'debug_events' in request.GET:
+        debug_val = str(request.GET.get('debug_events', '')).strip().lower()
+        request.session['debug_events'] = debug_val in ('1', 'true', 'yes', 'on')
+
+    debug_events = bool(request.session.get('debug_events', False))
+
     # Обработка смены брокера через GET-параметр (при перезагрузке страницы)
     if request.method == 'GET' and 'set_broker' in request.GET:
         new_broker = request.GET.get('set_broker')
@@ -326,6 +334,9 @@ def upload_xml_file(request):
         'available_years': available_years,
         'selected_year': selected_year,
         'has_uploaded_reports': uploaded_reports_for_broker.exists(),
+        'debug_events': debug_events,
+        'debug_acquisition_events': [],
+        'debug_group_type_counts': {},
     }
     context['target_report_year_for_title'] = request.session.get('last_target_year', None)
 
@@ -535,6 +546,43 @@ def upload_xml_file(request):
             context['total_dividend_commissions_rub'] = total_dividend_commissions_rub
             context['total_other_commissions_rub'] = total_other_commissions_rub_val
             context['dividend_fee_matching_report'] = fee_matching_report
+
+            if debug_events:
+                debug_group_type_counts = {}
+                debug_acquisition_events = []
+
+                for grouping_key, event_list in instrument_event_history.items():
+                    counts = Counter()
+                    for wrapper in event_list or []:
+                        if isinstance(wrapper, dict):
+                            display_type = wrapper.get('display_type')
+                            details = wrapper.get('event_details') or {}
+                            dt_obj = wrapper.get('datetime_obj')
+                        else:
+                            display_type = getattr(wrapper, 'display_type', None)
+                            details = getattr(wrapper, 'event_details', {}) or {}
+                            dt_obj = getattr(wrapper, 'datetime_obj', None)
+
+                        counts[display_type] += 1
+
+                        if display_type == 'acquisition_info':
+                            debug_acquisition_events.append({
+                                'grouping_key': grouping_key,
+                                'datetime_obj': dt_obj,
+                                'acquisition_type': details.get('acquisition_type'),
+                                'ticker': details.get('ticker'),
+                                'source_ticker': details.get('source_ticker'),
+                                'quantity': details.get('quantity'),
+                                'cost': details.get('cost'),
+                                'currency': details.get('currency'),
+                                'cost_rub': details.get('cost_rub'),
+                                'is_relevant_for_target_year': details.get('is_relevant_for_target_year'),
+                            })
+
+                    debug_group_type_counts[grouping_key] = dict(counts)
+
+                context['debug_group_type_counts'] = debug_group_type_counts
+                context['debug_acquisition_events'] = debug_acquisition_events
 
     return render(request, 'reports_to_ndfl/upload.html', context)
 

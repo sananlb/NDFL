@@ -74,6 +74,7 @@
             margin-top:0;
         }
         .conversion-row td { background-color: #e6f7ff !important; font-style: italic;}
+        .acquisition-row td { background-color: #f6efff !important; font-style: italic;}
         .aggregated-trade-row td {}
         .non-relevant-row td { color: #999; }
         .option-delivery-row { border-left: 4px solid #ffc107; }
@@ -305,6 +306,78 @@
         </div>
     </div>
 
+    {% if debug_events %}
+        <div class="content-block" style="border-color: #ff9800;">
+            <h3>DEBUG: события в шаблоне</h3>
+            <p style="margin: 0 0 10px 0;">
+                acquisition_info событий: <strong>{{ debug_acquisition_events|length }}</strong>
+                (<a href="?debug_events=0">выключить</a>)
+            </p>
+
+            {% if debug_group_type_counts %}
+                <details style="margin-bottom: 10px;">
+                    <summary>Типы событий по группам (grouping_key)</summary>
+                    <table style="margin-top: 10px;">
+                        <thead>
+                            <tr>
+                                <th>Группа</th>
+                                <th>Типы/кол-во</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for grouping_key, counts in debug_group_type_counts.items %}
+                                <tr>
+                                    <td><code>{{ grouping_key }}</code></td>
+                                    <td>
+                                        {% for t, n in counts.items %}
+                                            {{ t }}: {{ n }}{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </details>
+            {% endif %}
+
+            {% if debug_acquisition_events %}
+                <details open>
+                    <summary>acquisition_info (детализация)</summary>
+                    <table style="margin-top: 10px;">
+                        <thead>
+                            <tr>
+                                <th>Группа</th>
+                                <th>Дата</th>
+                                <th>Тип</th>
+                                <th>Тикер</th>
+                                <th>Источник</th>
+                                <th class="numeric">Кол-во</th>
+                                <th>Стоимость</th>
+                                <th class="numeric">RUB</th>
+                                <th>Релевантно</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for e in debug_acquisition_events %}
+                                <tr>
+                                    <td><code>{{ e.grouping_key }}</code></td>
+                                    <td>{{ e.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td>{{ e.acquisition_type|default:"-" }}</td>
+                                    <td>{{ e.ticker|default:"-" }}</td>
+                                    <td>{{ e.source_ticker|default:"-" }}</td>
+                                    <td class="numeric">{{ e.quantity|default:"-" }}</td>
+                                    <td>{% if e.cost %}{{ e.cost }} {{ e.currency }}{% else %}-{% endif %}</td>
+                                    <td class="numeric">{{ e.cost_rub|default:"-" }}</td>
+                                    <td>{{ e.is_relevant_for_target_year|default:"-" }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </details>
+            {% endif %}
+        </div>
+    {% endif %}
+
     {% if instrument_history_1530 %}
         <div class="content-block">
             <h2>История операций с ценными бумагами за {{ target_report_year_for_title|default:"указанный" }} год (код дохода 1530):
@@ -328,6 +401,17 @@
                         <thead><tr><th>Дата</th><!-- <th>ID</th> --><th>Операция</th><th>Инструмент</th><th class="numeric">Цена</th><th class="numeric">Кол-во</th><th class="numeric">Сумма</th><th class="numeric">Комиссия</th><th class="numeric">Итого затрат, Руб</th></tr></thead>
                         <tbody>
                             {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
+                                {% if event_wrapper.display_type == 'acquisition_info' %}
+                                    <tr class="acquisition-row{% if not event.is_relevant_for_target_year|default:True %} non-relevant-row{% endif %}">
+                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                        <td colspan="7">
+                                            <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
+                                            {{ event.quantity|default:'?' }} {{ event.ticker }}
+                                            {% if event.source_ticker %} (из {{ event.source_ticker }}){% endif %}
+                                            {% if event.cost and event.cost != 0 %} — оплачено {{ event.cost }} {{ event.currency }} ({{ event.cost_rub }} RUB){% endif %}
+                                        </td>
+                                    </tr>
+                                {% endif %}
                                 {% if event_wrapper.display_type == 'trade' %}
                                     <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}">
                                         <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">📋 Исполнение опциона</span>{% endif %}</td>
@@ -416,6 +500,17 @@
                         <thead><tr><th>Дата</th><!-- <th>ID</th> --><th>Операция</th><th>Инструмент</th><th class="numeric">Цена</th><th class="numeric">Кол-во</th><th class="numeric">Сумма</th><th class="numeric">Комиссия</th><th class="numeric">Итого затрат, Руб</th></tr></thead>
                         <tbody>
                             {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
+                                {% if event_wrapper.display_type == 'acquisition_info' %}
+                                    <tr class="acquisition-row{% if not event.is_relevant_for_target_year|default:True %} non-relevant-row{% endif %}">
+                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                        <td colspan="7">
+                                            <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
+                                            {{ event.quantity|default:'?' }} {{ event.ticker }}
+                                            {% if event.source_ticker %} (из {{ event.source_ticker }}){% endif %}
+                                            {% if event.cost and event.cost != 0 %} — оплачено {{ event.cost }} {{ event.currency }} ({{ event.cost_rub }} RUB){% endif %}
+                                        </td>
+                                    </tr>
+                                {% endif %}
                                 {% if event_wrapper.display_type == 'trade' %}
                                     <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}">
                                         <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">Исполнение опциона</span>{% endif %}</td>
