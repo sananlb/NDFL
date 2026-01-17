@@ -219,15 +219,12 @@ class IBParser(BaseBrokerParser):
                 dt_obj = self._parse_datetime(datetime_raw)
 
                 # Проверяем код сделки: Ep = Expired (истёкший опцион)
-                # Для истёкших опционов quantity показывает закрытие позиции (положительное),
-                # но это фактически продажа по цене 0
+                # Для истёкших опционов используем стандартную логику по знаку quantity:
+                # - Положительный quantity = закрытие шорта = buy
+                # - Отрицательный quantity = закрытие лонга = sell
                 is_expired = 'Ep' in (code_raw or '')
 
-                if is_expired:
-                    # Истёкший опцион - это продажа по цене 0
-                    operation = 'sell'
-                else:
-                    operation = 'buy' if quantity > 0 else 'sell'
+                operation = 'buy' if quantity > 0 else 'sell'
                 trade_id = f"IB_{symbol}_{dt_obj.strftime('%Y%m%d%H%M%S') if dt_obj else trade_index}_{trade_index}"
                 cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
 
@@ -1519,6 +1516,16 @@ class IBParser(BaseBrokerParser):
                                     temp_visited.add(next_sym)
                                 grouping_key = temp_key
                                 break
+
+                # Для acquisition_info: если тикер есть в symbols_with_sales_in_target_year,
+                # используем его как ключ группировки (чтобы подписка была рядом с продажей)
+                if display_type == 'acquisition_info':
+                    acq_ticker = event_details.get('ticker', '')
+                    if acq_ticker in symbols_with_sales_in_target_year:
+                        grouping_key = acq_ticker
+                    # Также проверяем варрантный префикс для тикера
+                    elif f"WARRANT_{acq_ticker}" in symbols_with_sales_in_target_year:
+                        grouping_key = f"WARRANT_{acq_ticker}"
 
                 # Проверяем, есть ли группа с префиксом WARRANT_ для этого символа
                 # (варранты группируются с префиксом WARRANT_)

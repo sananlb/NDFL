@@ -395,6 +395,8 @@
                             <h3>Опцион: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }}</h3>
                         {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
                             <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Инструмент{% endif %}: {% if first_event.ticker or first_event.symbol %}{{ first_event.ticker|default:first_event.symbol }}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% else %}{{ first_event.instr_nm|default_if_none:grouping_isin }}{% endif %}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
+                        {% elif first_event_wrapper.display_type == 'acquisition_info' %}
+                            <h3>{% if first_event.acquisition_type == 'subscription' %}Подписка{% elif first_event.acquisition_type == 'rights_issue' %}Выдача прав{% elif first_event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}: {{ first_event.ticker }}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% if first_event.isin %} ({{ first_event.isin }}){% endif %}</h3>
                         {% else %}<h3>История для ISIN: {{ grouping_isin }}</h3>{% endif %}
                     {% endwith %}{% endwith %}
                     <table>
@@ -411,8 +413,7 @@
                                             {% if event.cost and event.cost != 0 %} — оплачено {{ event.cost }} {{ event.currency }} ({{ event.cost_rub }} RUB){% endif %}
                                         </td>
                                     </tr>
-                                {% endif %}
-                                {% if event_wrapper.display_type == 'trade' %}
+                                {% elif event_wrapper.display_type == 'trade' %}
                                     <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}">
                                         <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">📋 Исполнение опциона</span>{% endif %}</td>
                                         <!-- <td> {{ event.trade_id|default:"-" }}</td> -->
@@ -494,6 +495,8 @@
                             <h3>Опцион: {{ first_event.instr_nm|default_if_none:"[Наименование не указано]" }}</h3>
                         {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
                             <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Инструмент{% endif %}: {% if first_event.ticker or first_event.symbol %}{{ first_event.ticker|default:first_event.symbol }}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% else %}{{ first_event.instr_nm|default_if_none:grouping_isin }}{% endif %}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
+                        {% elif first_event_wrapper.display_type == 'acquisition_info' %}
+                            <h3>{% if first_event.acquisition_type == 'subscription' %}Подписка{% elif first_event.acquisition_type == 'rights_issue' %}Выдача прав{% elif first_event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}: {{ first_event.ticker }}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% if first_event.isin %} ({{ first_event.isin }}){% endif %}</h3>
                         {% else %}<h3>История для ISIN: {{ grouping_isin }}</h3>{% endif %}
                     {% endwith %}{% endwith %}
                     <table>
@@ -510,8 +513,7 @@
                                             {% if event.cost and event.cost != 0 %} — оплачено {{ event.cost }} {{ event.currency }} ({{ event.cost_rub }} RUB){% endif %}
                                         </td>
                                     </tr>
-                                {% endif %}
-                                {% if event_wrapper.display_type == 'trade' %}
+                                {% elif event_wrapper.display_type == 'trade' %}
                                     <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}">
                                         <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">Исполнение опциона</span>{% endif %}</td>
                                         <!-- <td> {{ event.trade_id|default:"-" }}</td> -->
