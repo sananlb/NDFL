@@ -36,7 +36,8 @@ class IBParser(BaseBrokerParser):
         dividends = self._parse_dividends(sections)
         conversions, acquisitions = self._parse_corporate_actions(sections, symbol_to_name)
         self._parse_interest(sections, other_commissions)
-        self._parse_fees(sections, other_commissions, dividend_commissions)
+        dividend_accrual_payments = self._parse_dividend_accrual_payments(sections)
+        self._parse_fees(sections, other_commissions, dividend_commissions, dividend_accrual_payments)
 
         instrument_event_history, total_sales_profit, profit_by_income_code = self._build_fifo_history(
             trades, conversions, acquisitions, symbol_to_isin, symbol_to_name
@@ -365,12 +366,39 @@ class IBParser(BaseBrokerParser):
         dividends.sort(key=lambda x: (x.get('date') or date.min, x.get('ticker') or ''))
         return dividends
 
-    def _parse_fees(self, sections, other_commissions, dividend_commissions):
+    def _parse_dividend_accrual_payments(self, sections):
+        """Парсит секцию 'Изменения в начислениях дивидендов' и возвращает набор платежей.
+
+        Возвращает set of tuples: (ticker, abs(payment_amount))
+        Эти платежи (ADR fees и др.) связаны с дивидендами.
+        """
+        payments = set()
+        accrual_blocks = sections.get('Изменения в начислениях дивидендов') or []
+        if not accrual_blocks:
+            return payments
+
+        for block in accrual_blocks:
+            header_map = self._header_map(block.get('header', []))
+            for row in block.get('data', []):
+                symbol = self._get_value(row, header_map, ['Символ', 'Symbol'])
+                payment = self._parse_decimal(self._get_value(row, header_map, ['Платеж', 'Payment']))
+                if symbol and payment and payment != 0:
+                    # Сохраняем абсолютное значение для сопоставления
+                    payments.add((symbol.strip(), abs(payment)))
+        return payments
+
+    def _parse_fees(self, sections, other_commissions, dividend_commissions, dividend_accrual_payments=None):
         """Парсит секцию Сборы/комиссии.
 
         ADR fees и комиссии связанные с дивидендами идут в dividend_commissions.
         Остальные комиссии идут в other_commissions.
+
+        dividend_accrual_payments - набор (ticker, amount) из секции "Изменения в начислениях дивидендов"
+        для определения связи комиссии с дивидендами.
         """
+        if dividend_accrual_payments is None:
+            dividend_accrual_payments = set()
+
         fee_blocks = sections.get('Сборы/комиссии') or []
         if not fee_blocks:
             return
@@ -392,18 +420,24 @@ class IBParser(BaseBrokerParser):
                 if not (is_target_year or is_prev_december):
                     continue
 
-                # Проверяем, связана ли комиссия с дивидендами
-                # Примеры: "HSBK(...) Наличный дивиденд USD 2.258938 на акцию - FEE"
+                # Извлекаем тикер из описания для проверки
+                ticker, isin = self._extract_symbol_isin(description)
+
+                # Проверяем, связана ли комиссия с дивидендами:
+                # 1. По названию (содержит "дивиденд", "dividend", или "- FEE" в конце)
+                # 2. Или если платёж есть в секции "Изменения в начислениях дивидендов"
                 desc_lower = (description or '').lower()
-                is_dividend_related = (
+                is_dividend_related_by_name = (
                     bool(re.search(r'\s*-\s*FEE\s*$', description or '', flags=re.IGNORECASE))
                     or 'дивиденд' in desc_lower
                     or 'dividend' in desc_lower
                 )
+                # Проверяем наличие платежа в "Изменениях в начислениях дивидендов"
+                is_in_dividend_accruals = ticker and (ticker, abs(amount)) in dividend_accrual_payments
+                is_dividend_related = is_dividend_related_by_name or is_in_dividend_accruals
 
                 if is_dividend_related:
-                    # Извлекаем тикер и ISIN из описания для категории
-                    ticker, isin = self._extract_symbol_isin(description)
+                    # ticker и isin уже извлечены выше
                     category = ticker or "Комиссии по дивидендам"
                     dividend_key = self._normalize_dividend_description(description)
                     dividend_match_key = self._make_dividend_match_key(dt_obj.date(), currency, dividend_key)
