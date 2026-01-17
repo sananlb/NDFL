@@ -1205,7 +1205,7 @@ class IBParser(BaseBrokerParser):
                 'commission': commission,
                 'fifo_cost_rub_decimal': fifo_cost_rub,
                 'fifo_cost_rub_str': fifo_cost_str,
-                'is_relevant_for_target_year': bool(dt_obj and dt_obj.year == self.target_year and trade.get('operation') == 'sell'),
+                'is_relevant_for_target_year': bool(dt_obj and dt_obj.year == self.target_year and (trade.get('operation') == 'sell' or trade.get('is_expired'))),
                 'used_buy_ids': used_buy_ids,
                 'link_colors': [],
                 'is_expired': trade.get('is_expired', False),  # Флаг истёкшего опциона

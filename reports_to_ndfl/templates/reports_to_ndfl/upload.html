@@ -410,7 +410,7 @@
                                             <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
                                             {{ event.quantity|default:'?' }} {{ event.ticker }}
                                             {% if event.source_ticker %} (из {{ event.source_ticker }}){% endif %}
-                                            {% if event.cost and event.cost != 0 %} — оплачено {{ event.cost }} {{ event.currency }} ({{ event.cost_rub }} RUB){% endif %}
+                                            {% if event.cost and event.cost != 0 %} — оплачено {{ event.cost }} {{ event.currency }} ({{ event.cost_rub|floatformat:2 }} RUB){% endif %}
                                         </td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'trade' %}
@@ -510,7 +510,7 @@
                                             <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
                                             {{ event.quantity|default:'?' }} {{ event.ticker }}
                                             {% if event.source_ticker %} (из {{ event.source_ticker }}){% endif %}
-                                            {% if event.cost and event.cost != 0 %} — оплачено {{ event.cost }} {{ event.currency }} ({{ event.cost_rub }} RUB){% endif %}
+                                            {% if event.cost and event.cost != 0 %} — оплачено {{ event.cost }} {{ event.currency }} ({{ event.cost_rub|floatformat:2 }} RUB){% endif %}
                                         </td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'trade' %}
