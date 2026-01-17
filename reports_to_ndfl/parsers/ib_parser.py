@@ -1084,6 +1084,13 @@ class IBParser(BaseBrokerParser):
                     if short_entry['qty_remaining'] <= 0:
                         if sell_details:
                             sell_details['fifo_cost_rub_str'] = f"{sell_details['fifo_cost_rub_decimal']:.2f} (шорт, покр.)"
+                            # Для шортов финансовый результат считаем по году закрытия позиции.
+                            # Если шорт был открыт в прошлом году, но закрыт в целевом — сделка должна попасть в отчёт.
+                            if dt_obj:
+                                sell_details['short_close_datetime_obj'] = dt_obj
+                                sell_details['short_close_year'] = dt_obj.year
+                                if dt_obj.year == self.target_year:
+                                    symbols_with_sales_in_target_year.add(symbol)
                         short_sales[symbol].popleft()
                     elif sell_details:
                         sell_details['fifo_cost_rub_str'] = f"Частично открытый шорт (тек. расх.: {sell_details['fifo_cost_rub_decimal']:.2f} RUB)"
@@ -1187,6 +1194,11 @@ class IBParser(BaseBrokerParser):
                 if dt_obj and dt_obj.year == self.target_year:
                     symbols_with_sales_in_target_year.add(symbol)
 
+            # Если есть погашение опциона (Ep) в целевом году — инструмент должен попасть в историю/PDF,
+            # даже если операция формально 'buy' (закрытие шорта) и нет обычной продажи в этом году.
+            if dt_obj and dt_obj.year == self.target_year and trade.get('is_expired', False):
+                symbols_with_sales_in_target_year.add(symbol)
+
             event_details = {
                 'date': dt_obj.strftime('%Y-%m-%d %H:%M:%S') if dt_obj else '-',
                 'trade_id': trade.get('trade_id'),
@@ -1246,7 +1258,9 @@ class IBParser(BaseBrokerParser):
                 details = event.get('event_details') or {}
                 if details.get('operation') == 'sell':
                     dt_obj = event.get('datetime_obj')
-                    if dt_obj and dt_obj.year == self.target_year:
+                    effective_year = details.get('short_close_year') or (dt_obj.year if dt_obj else None)
+                    details['is_relevant_for_target_year'] = bool(effective_year == self.target_year)
+                    if effective_year == self.target_year:
                         used_buy_ids_for_target_year.update(details.get('used_buy_ids', []))
 
         for symbol, events in instrument_events.items():
@@ -1256,7 +1270,11 @@ class IBParser(BaseBrokerParser):
                 details = event.get('event_details') or {}
                 if details.get('operation') == 'buy':
                     trade_id = details.get('trade_id')
-                    details['is_relevant_for_target_year'] = trade_id in used_buy_ids_for_target_year
+                    dt_obj = event.get('datetime_obj')
+                    if details.get('is_expired') and dt_obj and dt_obj.year == self.target_year:
+                        details['is_relevant_for_target_year'] = True
+                    else:
+                        details['is_relevant_for_target_year'] = trade_id in used_buy_ids_for_target_year
 
         for symbol, events in instrument_events.items():
             if symbol in symbols_with_sales_in_target_year:
@@ -1316,7 +1334,8 @@ class IBParser(BaseBrokerParser):
                 details = event.get('event_details') or {}
                 if details.get('operation') == 'sell':
                     dt_obj = event.get('datetime_obj')
-                    if dt_obj and dt_obj.year == self.target_year:
+                    effective_year = details.get('short_close_year') or (dt_obj.year if dt_obj else None)
+                    if effective_year == self.target_year:
                         # Используем summ, которая уже учитывает множитель для опционов
                         income_rub = (details.get('summ', Decimal(0)) * details.get('cbr_rate', Decimal(0))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                         fifo_cost_val = details.get('fifo_cost_rub_decimal', Decimal(0)) or Decimal(0)
@@ -1446,15 +1465,23 @@ class IBParser(BaseBrokerParser):
                 is_relevant = False
 
                 if display_type == 'trade':
-                    if event_details.get('operation') == 'sell':
-                        # Продажи в целевом году релевантны
-                        if dt_obj and dt_obj.year == self.target_year:
+                    operation = (event_details.get('operation') or '').lower()
+                    is_expired = bool(event_details.get('is_expired'))
+                    if is_expired and dt_obj and dt_obj.year == self.target_year:
+                        # Погашение опциона (Ep) — это закрытие позиции, его нужно показывать в целевом году
+                        is_relevant = True
+                        event_details['is_relevant_for_target_year'] = True
+                    elif operation == 'sell':
+                        # Для шортов релевантность определяется годом закрытия позиции (short_close_year),
+                        # иначе — годом сделки.
+                        effective_year = event_details.get('short_close_year') or (dt_obj.year if dt_obj else None)
+                        if effective_year == self.target_year:
                             is_relevant = True
                             event_details['is_relevant_for_target_year'] = True
                         else:
                             event_details['is_relevant_for_target_year'] = False
-                    elif event_details.get('operation') == 'buy':
-                        # Покупки, использованные для продаж в целевом году, релевантны
+                    elif operation == 'buy':
+                        # Покупки, использованные для релевантных продаж/шортов, релевантны
                         trade_id = event_details.get('trade_id')
                         if trade_id and trade_id in used_buy_ids_for_target_year:
                             is_relevant = True

@@ -20,8 +20,9 @@ def _trade(
     commission: str = "0",
     currency: str = "USD",
     income_code: str = "1530",
+    **extra_fields,
 ):
-    return {
+    trade = {
         "trade_id": trade_id,
         "operation": operation,
         "symbol": symbol,
@@ -37,6 +38,8 @@ def _trade(
         "isin": "",
         "instr_nm": symbol,
     }
+    trade.update(extra_fields)
+    return trade
 
 
 class IBParserConversionLinksTests(SimpleTestCase):
@@ -223,9 +226,7 @@ class IBParserConversionLinksTests(SimpleTestCase):
         history, _total_profit, _profit_by_code = parser._build_fifo_history(trades, conversions)
 
         self.assertIn("CWEB", history)
-        trade_events = [
-            e for e in history["CWEB"] if e.get("display_type") == "trade" and e.get("event_details")
-        ]
+        trade_events = [e for e in history["CWEB"] if e.get("display_type") == "trade" and e.get("event_details")]
         details_by_id = {e["event_details"].get("trade_id"): e["event_details"] for e in trade_events}
 
         self.assertIn("SELL_1", details_by_id)
@@ -242,6 +243,63 @@ class IBParserConversionLinksTests(SimpleTestCase):
         self.assertIn("BUY_2", used_buy_ids)
         self.assertIn("BUY_3", used_buy_ids)
         self.assertNotIn("BUY_4", used_buy_ids, "BUY_4 не должен использоваться при FIFO продаже 100 акций")
+
+
+class IBParserExpiredOptionsTests(SimpleTestCase):
+    def test_short_option_expiration_is_included_in_target_year_history(self):
+        """
+        SHORT опцион, открытый продажей в прошлом году и закрытый погашением (Ep) в целевом году,
+        должен попадать в историю и в расчёт финреза по году закрытия.
+        """
+        parser = IBParser(request=None, user=None, target_year=2025)
+
+        symbol = "FMC 17JAN25 80 C"
+        group_symbol = f"OPTION_{symbol}"
+        trades = [
+            _trade(
+                trade_id="SELL_OPEN",
+                operation="sell",
+                symbol=symbol,
+                dt_obj=datetime(2024, 10, 30, 10, 0, 0),
+                quantity="1",
+                price="1",
+                income_code="1532",
+                group_symbol=group_symbol,
+            ),
+            _trade(
+                trade_id="BUY_EXP",
+                operation="buy",
+                symbol=symbol,
+                dt_obj=datetime(2025, 1, 17, 10, 0, 0),
+                quantity="1",
+                price="0",
+                income_code="1532",
+                group_symbol=group_symbol,
+                is_expired=True,
+            ),
+        ]
+
+        history, total_profit, profit_by_code = parser._build_fifo_history(trades, conversions=[], acquisitions=[])
+
+        self.assertIn(group_symbol, history)
+        trade_events = [e for e in history[group_symbol] if e.get("display_type") == "trade" and e.get("event_details")]
+        details_by_id = {e["event_details"].get("trade_id"): e["event_details"] for e in trade_events}
+
+        self.assertIn("SELL_OPEN", details_by_id)
+        self.assertIn("BUY_EXP", details_by_id)
+
+        sell_details = details_by_id["SELL_OPEN"]
+        buy_details = details_by_id["BUY_EXP"]
+
+        self.assertEqual(sell_details.get("short_close_year"), 2025)
+        self.assertTrue(sell_details.get("is_relevant_for_target_year"))
+        self.assertTrue(buy_details.get("is_expired"))
+        self.assertTrue(buy_details.get("is_relevant_for_target_year"))
+        self.assertTrue(sell_details.get("is_in_pdf_range"))
+        self.assertTrue(buy_details.get("is_in_pdf_range"))
+
+        self.assertEqual(profit_by_code.get("1532"), Decimal("100.00"))
+        self.assertEqual(total_profit, Decimal("100.00"))
 
 
 class IBParserDividendMatchingTests(SimpleTestCase):
