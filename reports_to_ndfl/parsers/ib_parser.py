@@ -208,13 +208,25 @@ class IBParser(BaseBrokerParser):
                 price_raw = self._get_value(row, header_map, ['Цена транзакции', 'T. Price', 'Trade Price'])
                 commission_raw = self._get_value(row, header_map, ['Комиссия/плата', 'Comm/Fee', 'Комиссия в USD'])
                 proceeds_raw = self._get_value(row, header_map, ['Выручка', 'Proceeds'])
+                basis_raw = self._get_value(row, header_map, ['Базис', 'Basis'])
+                code_raw = self._get_value(row, header_map, ['Код', 'Code'])
 
                 quantity = self._parse_decimal(quantity_raw)
                 if quantity == 0:
                     continue
 
                 dt_obj = self._parse_datetime(datetime_raw)
-                operation = 'buy' if quantity > 0 else 'sell'
+
+                # Проверяем код сделки: Ep = Expired (истёкший опцион)
+                # Для истёкших опционов quantity показывает закрытие позиции (положительное),
+                # но это фактически продажа по цене 0
+                is_expired = 'Ep' in (code_raw or '')
+
+                if is_expired:
+                    # Истёкший опцион - это продажа по цене 0
+                    operation = 'sell'
+                else:
+                    operation = 'buy' if quantity > 0 else 'sell'
                 trade_id = f"IB_{symbol}_{dt_obj.strftime('%Y%m%d%H%M%S') if dt_obj else trade_index}_{trade_index}"
                 cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
 
@@ -246,6 +258,9 @@ class IBParser(BaseBrokerParser):
                 commission = abs(self._parse_decimal(commission_raw))
                 commission = commission.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if commission else Decimal(0)
 
+                # Парсим Базис для истёкших опционов (стоимость покупки)
+                basis = self._parse_decimal(basis_raw)
+
                 trade = {
                     'trade_id': trade_id,
                     'datetime_obj': dt_obj,
@@ -263,6 +278,8 @@ class IBParser(BaseBrokerParser):
                     'income_code': income_code,
                     'isin': symbol_to_isin.get(symbol, ''),
                     'instr_nm': symbol_to_name.get(symbol, symbol),
+                    'is_expired': is_expired,
+                    'basis': basis,  # Стоимость покупки (для истёкших опционов)
                 }
                 trades.append(trade)
                 trade_index += 1
@@ -1046,6 +1063,52 @@ class IBParser(BaseBrokerParser):
                 fifo_cost_str = None
                 used_buy_ids = []
             else:
+                # Для истёкших опционов: если нет лота покупки, создаём виртуальный на основе Базиса
+                is_expired = trade.get('is_expired', False)
+                basis = trade.get('basis', Decimal(0))
+                if is_expired and not buy_lots[symbol] and basis > 0:
+                    # Создаём виртуальную покупку на основе Базиса
+                    # Базис в IB указан в валюте сделки, переводим в рубли
+                    basis_rub = (basis * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
+                    cost_per_share_rub = (basis_rub / quantity) if quantity else Decimal(0)
+                    virtual_lot_id = f"VIRTUAL_BUY_{trade.get('trade_id')}"
+                    buy_lots[symbol].append({
+                        'q_remaining': quantity,
+                        'cost_per_share_rub': cost_per_share_rub,
+                        'lot_id': virtual_lot_id,
+                    })
+                    # Добавляем событие виртуальной покупки для отображения
+                    instrument_events[symbol].append({
+                        'display_type': 'trade',
+                        'datetime_obj': dt_obj,  # Дата та же (покупка была ранее, но отображаем здесь)
+                        'event_details': {
+                            'date': dt_obj.strftime('%Y-%m-%d %H:%M:%S') if dt_obj else '-',
+                            'trade_id': virtual_lot_id,
+                            'operation': 'buy',
+                            'symbol': trade.get('symbol'),
+                            'instr_nm': trade.get('instr_nm') or symbol,
+                            'isin': trade.get('isin', ''),
+                            'instr_kind': trade.get('instr_kind'),
+                            'income_code': trade.get('income_code', '1530'),
+                            'p': Decimal(0),  # Цена неизвестна
+                            'curr_c': trade.get('currency'),
+                            'cbr_rate': cbr_rate,
+                            'q': quantity,
+                            'multiplier': multiplier,
+                            'summ': basis,  # Базис = стоимость покупки
+                            'commission': Decimal(0),
+                            'fifo_cost_rub_decimal': None,
+                            'fifo_cost_rub_str': None,
+                            'is_relevant_for_target_year': True,  # Покупка релевантна для истёкшего опциона
+                            'used_buy_ids': [],
+                            'link_colors': [],
+                            'is_virtual_buy': True,  # Флаг виртуальной покупки
+                            'virtual_buy_comment': 'Покупка опциона (из отчёта за предыдущий период)',
+                        },
+                    })
+                    if virtual_lot_id:
+                        trade_details_by_id[virtual_lot_id] = instrument_events[symbol][-1]['event_details']
+
                 remaining = quantity
                 fifo_cost_rub = Decimal(0)
                 used_buy_ids = []
@@ -1108,6 +1171,7 @@ class IBParser(BaseBrokerParser):
                 'is_relevant_for_target_year': bool(dt_obj and dt_obj.year == self.target_year and trade.get('operation') == 'sell'),
                 'used_buy_ids': used_buy_ids,
                 'link_colors': [],
+                'is_expired': trade.get('is_expired', False),  # Флаг истёкшего опциона
             }
             instrument_events[symbol].append({
                 'display_type': 'trade',
