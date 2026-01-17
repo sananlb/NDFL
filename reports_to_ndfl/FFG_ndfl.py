@@ -1959,6 +1959,30 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
             final_instrument_event_history[grouping_key] = []
         final_instrument_event_history[grouping_key].append(option_event)
 
+    # Определяем диапазон дат для PDF (от первой релевантной покупки до последней релевантной продажи)
+    for symbol, events in final_instrument_event_history.items():
+        min_relevant_date = None
+        max_relevant_date = None
+
+        # Находим границы диапазона релевантных событий
+        for event in events:
+            event_details = event.get('event_details', {})
+            dt_obj = event.get('datetime_obj')
+            if event_details.get('is_relevant_for_target_year') and dt_obj:
+                if min_relevant_date is None or dt_obj < min_relevant_date:
+                    min_relevant_date = dt_obj
+                if max_relevant_date is None or dt_obj > max_relevant_date:
+                    max_relevant_date = dt_obj
+
+        # Устанавливаем флаг is_in_pdf_range для каждого события
+        for event in events:
+            event_details = event.get('event_details', {})
+            dt_obj = event.get('datetime_obj')
+            if min_relevant_date and max_relevant_date and dt_obj:
+                event_details['is_in_pdf_range'] = min_relevant_date <= dt_obj <= max_relevant_date
+            else:
+                event_details['is_in_pdf_range'] = event_details.get('is_relevant_for_target_year', False)
+
     return (
         final_instrument_event_history,
         all_dividend_events_final_list,

@@ -220,8 +220,8 @@
                     <tbody>
                         {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                             {% if event_wrapper.display_type == 'trade' %}
-                                {% if event.is_relevant_for_target_year %}
-                                <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}">
+                                {% if event.is_in_pdf_range %}
+                                <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell">{% if event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
@@ -243,15 +243,15 @@
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'conversion_info' %}
-                                {% if event.is_relevant_for_target_year %}
-                                <tr class="conversion-row">
+                                {% if event.is_in_pdf_range %}
+                                <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                     <td colspan="7"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'acquisition_info' %}
-                                {% if event.is_relevant_for_target_year %}
-                                <tr class="acquisition-row">
+                                {% if event.is_in_pdf_range %}
+                                <tr class="acquisition-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                     <td colspan="7">
                                         <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
@@ -262,8 +262,8 @@
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'initial_holding' %}
-                                {% if event.is_relevant_for_target_year %}
-                                <tr>
+                                {% if event.is_in_pdf_range %}
+                                <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                     <!-- <td>Нач.</td> -->
                                     <td class="op-cell">Зачисл.</td>
@@ -353,8 +353,8 @@
                     <tbody>
                         {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                             {% if event_wrapper.display_type == 'trade' %}
-                                {% if event.is_relevant_for_target_year %}
-                                <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}">
+                                {% if event.is_in_pdf_range %}
+                                <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell">{% if event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
@@ -376,15 +376,15 @@
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'conversion_info' %}
-                                {% if event.is_relevant_for_target_year %}
-                                <tr class="conversion-row">
+                                {% if event.is_in_pdf_range %}
+                                <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                     <td colspan="7"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'acquisition_info' %}
-                                {% if event.is_relevant_for_target_year %}
-                                <tr class="acquisition-row">
+                                {% if event.is_in_pdf_range %}
+                                <tr class="acquisition-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                     <td colspan="7">
                                         <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
@@ -395,8 +395,8 @@
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'initial_holding' %}
-                                {% if event.is_relevant_for_target_year %}
-                                <tr>
+                                {% if event.is_in_pdf_range %}
+                                <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
                                     <!-- <td>Нач.</td> -->
                                     <td class="op-cell">Зачисл.</td>
