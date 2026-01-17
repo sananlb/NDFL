@@ -392,16 +392,13 @@ class IBParser(BaseBrokerParser):
                 if not (is_target_year or is_prev_december):
                     continue
 
-                # Проверяем, связана ли комиссия с дивидендами или ADR
+                # Проверяем, связана ли комиссия с дивидендами
                 # Примеры: "HSBK(...) Наличный дивиденд USD 2.258938 на акцию - FEE"
-                #          "HSBK(...) Плата ADR USD 0.02 на акцию"
                 desc_lower = (description or '').lower()
                 is_dividend_related = (
                     bool(re.search(r'\s*-\s*FEE\s*$', description or '', flags=re.IGNORECASE))
                     or 'дивиденд' in desc_lower
                     or 'dividend' in desc_lower
-                    or 'плата adr' in desc_lower
-                    or 'adr fee' in desc_lower
                 )
 
                 if is_dividend_related:
