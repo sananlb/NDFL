@@ -224,7 +224,7 @@
                                 <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
-                                    <td class="op-cell">{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
+                                    <td class="op-cell">{% if event.is_expired or (event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0) %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
                                     <td>{{ event.ticker|default:event.symbol|default:event.isin }}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
@@ -357,7 +357,7 @@
                                 <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
-                                    <td class="op-cell">{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
+                                    <td class="op-cell">{% if event.is_expired or (event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0) %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
                                     <td>{{ event.ticker|default:event.symbol|default:event.isin }}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
