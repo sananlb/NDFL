@@ -383,16 +383,25 @@ class IBParser(BaseBrokerParser):
                 description = self._get_value(row, header_map, ['Описание', 'Description'])
                 amount = self._parse_decimal(self._get_value(row, header_map, ['Сумма', 'Amount']))
                 dt_obj = self._parse_datetime(date_raw)
-                if not dt_obj or dt_obj.year != self.target_year or amount == 0:
+                if not dt_obj or amount == 0:
+                    continue
+                # Учитываем комиссии за целевой год И за декабрь предыдущего года
+                # (IB может включить декабрьские комиссии в отчёт следующего года из-за ребилинга)
+                is_target_year = dt_obj.year == self.target_year
+                is_prev_december = dt_obj.year == self.target_year - 1 and dt_obj.month == 12
+                if not (is_target_year or is_prev_december):
                     continue
 
-                # Проверяем, связана ли комиссия с дивидендами
+                # Проверяем, связана ли комиссия с дивидендами или ADR
                 # Примеры: "HSBK(...) Наличный дивиденд USD 2.258938 на акцию - FEE"
+                #          "HSBK(...) Плата ADR USD 0.02 на акцию"
                 desc_lower = (description or '').lower()
                 is_dividend_related = (
                     bool(re.search(r'\s*-\s*FEE\s*$', description or '', flags=re.IGNORECASE))
                     or 'дивиденд' in desc_lower
                     or 'dividend' in desc_lower
+                    or 'плата adr' in desc_lower
+                    or 'adr fee' in desc_lower
                 )
 
                 if is_dividend_related:
