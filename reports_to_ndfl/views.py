@@ -487,7 +487,7 @@ def upload_xml_file(request):
             instrument_event_history, dividend_events, total_dividends_rub, \
             total_sales_profit, parsing_error_current_run, \
             dividend_commissions_data, other_commissions_data, total_other_commissions_rub_val, \
-            profit_by_income_code = parser.process()
+            profit_by_income_code, profit_by_income_code_currencies = parser.process()
 
             # Явное преобразование defaultdict в обычные dict
             # Это должно гарантировать, что в шаблон попадут стандартные dict,
@@ -539,6 +539,7 @@ def upload_xml_file(request):
             context['total_dividends_rub'] = total_dividends_rub
             context['total_sales_profit_rub'] = total_sales_profit
             context['profit_by_income_code'] = profit_by_income_code
+            context['profit_by_income_code_currencies'] = profit_by_income_code_currencies
             context['parsing_error_occurred'] = parsing_error_current_run
             context['processing_has_run_for_current_display'] = True
             context['dividend_commissions'] = dividend_commissions_data
@@ -615,7 +616,7 @@ def download_pdf(request):
     instrument_event_history, dividend_events, total_dividends_rub, \
     total_sales_profit, parsing_error, \
     dividend_commissions_data, other_commissions_data, total_other_commissions_rub_val, \
-    profit_by_income_code = parser.process()
+    profit_by_income_code, profit_by_income_code_currencies = parser.process()
 
     # Преобразуем defaultdict в обычные dict
     if isinstance(dividend_commissions_data, defaultdict):
@@ -687,6 +688,7 @@ def download_pdf(request):
         'total_dividends_rub': total_dividends_rub,
         'total_sales_profit_rub': total_sales_profit,
         'profit_by_income_code': profit_by_income_code,
+        'profit_by_income_code_currencies': profit_by_income_code_currencies,
         'dividend_commissions': dividend_commissions_data,
         'other_commissions': other_commissions_data,
         'total_dividend_commissions_rub': total_dividend_commissions_rub,

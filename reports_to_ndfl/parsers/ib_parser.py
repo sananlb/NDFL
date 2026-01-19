@@ -18,7 +18,8 @@ class IBParser(BaseBrokerParser):
             empty_commissions = defaultdict(lambda: {'amount_by_currency': defaultdict(Decimal), 'amount_rub': Decimal(0), 'details': []})
             empty_other = defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []})
             empty_profit_by_code = {'1530': Decimal(0), '1532': Decimal(0)}
-            return {}, [], Decimal(0), Decimal(0), False, empty_commissions, empty_other, Decimal(0), empty_profit_by_code
+            empty_profit_by_code_currencies = {'1530': {}, '1532': {}}
+            return {}, [], Decimal(0), Decimal(0), False, empty_commissions, empty_other, Decimal(0), empty_profit_by_code, empty_profit_by_code_currencies
 
         sections = {}
         for report in reports:
@@ -39,7 +40,7 @@ class IBParser(BaseBrokerParser):
         dividend_accrual_payments = self._parse_dividend_accrual_payments(sections)
         self._parse_fees(sections, other_commissions, dividend_commissions, dividend_accrual_payments)
 
-        instrument_event_history, total_sales_profit, profit_by_income_code = self._build_fifo_history(
+        instrument_event_history, total_sales_profit, profit_by_income_code, profit_by_income_code_currencies = self._build_fifo_history(
             trades, conversions, acquisitions, symbol_to_isin, symbol_to_name
         )
 
@@ -56,6 +57,7 @@ class IBParser(BaseBrokerParser):
             other_commissions,
             total_other_commissions_rub,
             profit_by_income_code,
+            profit_by_income_code_currencies,
         )
 
     def _get_reports(self):
@@ -1327,6 +1329,11 @@ class IBParser(BaseBrokerParser):
         # Пересчет total_sales_profit_rub после учета шортов/покрытий
         # Разделение по кодам дохода: 1530 (акции), 1532 (ПФИ/опционы)
         profit_by_income_code = {'1530': Decimal(0), '1532': Decimal(0)}
+        # Добавляем структуру для хранения профита по валютам для каждого кода дохода
+        profit_by_income_code_currencies = {
+            '1530': defaultdict(Decimal),  # {currency: profit_amount}
+            '1532': defaultdict(Decimal)
+        }
         for symbol, events in instrument_events.items():
             for event in events:
                 if event.get('display_type') != 'trade':
@@ -1344,6 +1351,18 @@ class IBParser(BaseBrokerParser):
                         # Добавляем в соответствующий код дохода
                         income_code = details.get('income_code', '1530')
                         profit_by_income_code[income_code] = profit_by_income_code.get(income_code, Decimal(0)) + profit
+
+                        # Считаем профит в валюте продажи
+                        currency = details.get('curr_c', 'USD')
+                        summ = details.get('summ', Decimal(0))
+                        cbr_rate = details.get('cbr_rate', Decimal(1))
+                        # Конвертируем fifo_cost обратно в валюту продажи
+                        if cbr_rate and cbr_rate != 0:
+                            fifo_cost_in_currency = (fifo_cost_val / cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        else:
+                            fifo_cost_in_currency = Decimal(0)
+                        profit_in_currency = summ - fifo_cost_in_currency
+                        profit_by_income_code_currencies[income_code][currency] += profit_in_currency
 
         # Собираем карту конвертаций: старый_символ -> новый_символ и новый_символ -> старый_символ
         conversion_map_old_to_new = {}
@@ -1596,7 +1615,13 @@ class IBParser(BaseBrokerParser):
         # Преобразуем defaultdict обратно в обычный dict
         filtered_history = dict(filtered_history)
 
-        return filtered_history, total_sales_profit_rub, profit_by_income_code
+        # Преобразуем profit_by_income_code_currencies в обычный dict
+        profit_by_income_code_currencies_dict = {
+            '1530': dict(profit_by_income_code_currencies['1530']),
+            '1532': dict(profit_by_income_code_currencies['1532'])
+        }
+
+        return filtered_history, total_sales_profit_rub, profit_by_income_code, profit_by_income_code_currencies_dict
 
     def _apply_conversion(self, conv, buy_lots, instrument_events, symbol_to_isin=None, symbol_to_name=None):
         if symbol_to_isin is None:
