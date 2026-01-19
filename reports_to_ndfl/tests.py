@@ -77,7 +77,9 @@ class IBParserConversionLinksTests(SimpleTestCase):
             }
         ]
 
-        history, _total_profit, _profit_by_code = parser._build_fifo_history(trades, conversions)
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+            trades, conversions
+        )
 
         self.assertIn("RACAU", history)
         trade_events = [
@@ -141,7 +143,9 @@ class IBParserConversionLinksTests(SimpleTestCase):
             },
         ]
 
-        history, _total_profit, _profit_by_code = parser._build_fifo_history(trades, conversions)
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+            trades, conversions
+        )
 
         self.assertIn("C", history)
         trade_events = [e for e in history["C"] if e.get("display_type") == "trade" and e.get("event_details")]
@@ -223,7 +227,9 @@ class IBParserConversionLinksTests(SimpleTestCase):
             }
         ]
 
-        history, _total_profit, _profit_by_code = parser._build_fifo_history(trades, conversions)
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+            trades, conversions
+        )
 
         self.assertIn("CWEB", history)
         trade_events = [e for e in history["CWEB"] if e.get("display_type") == "trade" and e.get("event_details")]
@@ -279,7 +285,9 @@ class IBParserExpiredOptionsTests(SimpleTestCase):
             ),
         ]
 
-        history, total_profit, profit_by_code = parser._build_fifo_history(trades, conversions=[], acquisitions=[])
+        history, total_profit, profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+            trades, conversions=[], acquisitions=[]
+        )
 
         self.assertIn(group_symbol, history)
         trade_events = [e for e in history[group_symbol] if e.get("display_type") == "trade" and e.get("event_details")]
@@ -555,7 +563,9 @@ class IBParserDividendMatchingTests(SimpleTestCase):
             }
         ]
 
-        history, _total_profit, _profit_by_code = parser._build_fifo_history(trades, conversions)
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+            trades, conversions
+        )
 
         self.assertIn("2628", history)
         trade_events = [
@@ -622,7 +632,9 @@ class IBParserDividendMatchingTests(SimpleTestCase):
             }
         ]
 
-        history, _total_profit, _profit_by_code = parser._build_fifo_history(trades, conversions)
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+            trades, conversions
+        )
 
         self.assertIn("CWEB", history)
         trade_events = [
@@ -705,7 +717,7 @@ class IBParserDividendMatchingTests(SimpleTestCase):
             "2628": "CNE1000002L3",
         }
 
-        history, _total_profit, _profit_by_code = parser._build_fifo_history(
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
             trades, conversions, symbol_to_isin=symbol_to_isin
         )
 
@@ -878,7 +890,9 @@ class IBParserWarrantCorporateActionsTests(SimpleTestCase):
             )
         ]
 
-        history, _total_profit, _profit_by_code = parser._build_fifo_history(trades, conversions, acquisitions)
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+            trades, conversions, acquisitions
+        )
 
         self.assertIn("WARRANT_ADCO", history)
         trade_events = [
