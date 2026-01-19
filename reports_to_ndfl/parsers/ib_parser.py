@@ -405,6 +405,7 @@ class IBParser(BaseBrokerParser):
                     'amount': amount,
                     'tax_amount': tax_amount,
                     'currency': currency,
+                    'cbr_rate': cbr_rate,
                     'cbr_rate_str': f"{cbr_rate:.4f}" if cbr_rate else '-',
                     'amount_rub': amount_rub,
                     'dividend_key': dividend_key,  # Ключ для связывания с комиссией
