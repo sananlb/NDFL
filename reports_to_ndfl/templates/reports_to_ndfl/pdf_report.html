@@ -169,8 +169,12 @@
 
     <div class="summary-box">
         <p><strong>Код дохода 1530</strong><br>
+        <strong>Доход:</strong> {{ income_by_income_code.1530|floatformat:2|default:"0.00" }} RUB {% if income_by_income_code_currencies.1530 %}{{ income_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}<br>
+        <strong>Затраты:</strong> {{ cost_by_income_code.1530|floatformat:2|default:"0.00" }} RUB {% if cost_by_income_code_currencies.1530 %}{{ cost_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}<br>
         <strong>Финансовый результат:</strong> {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB {% if profit_by_income_code_currencies.1530 %}{{ profit_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}</p>
         <p><strong>Код дохода 1532</strong><br>
+        <strong>Доход:</strong> {{ income_by_income_code.1532|floatformat:2|default:"0.00" }} RUB {% if income_by_income_code_currencies.1532 %}{{ income_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}<br>
+        <strong>Затраты:</strong> {{ cost_by_income_code.1532|floatformat:2|default:"0.00" }} RUB {% if cost_by_income_code_currencies.1532 %}{{ cost_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}<br>
         <strong>Финансовый результат:</strong> {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB {% if profit_by_income_code_currencies.1532 %}{{ profit_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}</p>
         <p><strong>Код дохода 1010</strong><br>
         <strong>Общая сумма дивидендов до налогов:</strong> {{ total_dividends_rub|floatformat:2|default:"0.00" }} RUB {% if dividends_by_currency %}{{ dividends_by_currency|format_currency_breakdown }}{% endif %}</p>
