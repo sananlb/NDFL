@@ -891,7 +891,9 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     total_dividends_rub_for_year = Decimal(0)
     total_sales_profit_rub_for_year = Decimal(0)
     # Для хранения профита по валютам (для кода дохода 1530)
-    profit_by_currency_1530 = defaultdict(Decimal) 
+    profit_by_currency_1530 = defaultdict(Decimal)
+    dividends_by_currency = defaultdict(Decimal)
+    other_commissions_by_currency = defaultdict(Decimal) 
 
     # ИЗМЕНЕНО: Загружаем ВСЕ файлы пользователя для полной истории, включая покрытие шортов будущими покупками
     if files_queryset is None:
@@ -1255,7 +1257,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
 
     for div_event in all_dividend_events_final_list:
         currency_code_final = div_event['currency']; payment_date_final = div_event['date']; ticker_final = div_event['ticker']
-        rate_val_div = Decimal('1.0') 
+        rate_val_div = Decimal('1.0')
         cbr_rate_str_for_event = "1.0000"
         if currency_code_final != 'RUB':
             currency_model_f = Currency.objects.filter(char_code=currency_code_final).first()
@@ -1265,14 +1267,16 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                     rate_val_div = rate_val_fetched
                     cbr_rate_str_for_event = f"{rate_val_div:.4f}"
                     if not fetched_f: cbr_rate_str_for_event += " (ближ.)"
-                else: cbr_rate_str_for_event = "не найден" 
-            else: cbr_rate_str_for_event = "валюта?" 
+                else: cbr_rate_str_for_event = "не найден"
+            else: cbr_rate_str_for_event = "валюта?"
         div_event['cbr_rate_str'] = cbr_rate_str_for_event
         div_event['amount_rub'] = (div_event['amount'] * rate_val_div).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         # Налог также нужно перевести в рубли, если он не в рублях и есть курс
         # Это не сделано в исходном коде, но для корректности НДФЛ это важно.
         # Пока оставляем tax_amount как есть (предполагая, что он уже в нужной валюте или его не нужно переводить для целей этого отчета)
         total_dividends_rub_for_year += div_event['amount_rub']
+        # Accumulate dividends by currency
+        dividends_by_currency[currency_code_final] += div_event['amount']
 
 
     conversion_events_for_display_accumulator = []
@@ -1947,6 +1951,10 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     # Используем files_for_sales_scan_target_year_only для расчета комиссий за целевой год
     dividend_commissions_details, other_commissions_details, total_other_commissions_rub_val = _calculate_additional_commissions(request, user, target_report_year, files_for_sales_scan_target_year_only, _processing_had_error_local_flag)
 
+    # Accumulate other commissions by currency
+    for category_data in other_commissions_details.values():
+        for currency, amount in category_data.get('currencies', {}).items():
+            other_commissions_by_currency[currency] += amount
 
     if _processing_had_error_local_flag[0]: 
         pass
@@ -2002,5 +2010,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         dividend_commissions_details,
         other_commissions_details,
         total_other_commissions_rub_val,
-        dict(profit_by_currency_1530)  # Преобразуем defaultdict в обычный dict
+        dict(profit_by_currency_1530),  # Преобразуем defaultdict в обычный dict
+        dict(dividends_by_currency),
+        dict(other_commissions_by_currency),
     )
