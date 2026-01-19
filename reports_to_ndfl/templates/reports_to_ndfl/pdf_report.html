@@ -191,14 +191,14 @@
             <div class="instrument-block">
                 {% with first_event_wrapper=event_list.0 %}{% with first_event=first_event_wrapper.event_details %}
                     {% if first_event_wrapper.display_type == 'conversion_info' %}
-                        <h3>Акции: {{ first_event.old_instr_nm|default:first_event.old_ticker }} ({{ first_event.old_isin }}) / {{ first_event.old_ticker }}<br>
-                        Акции: {{ first_event.new_instr_nm|default:first_event.new_ticker }} ({{ first_event.new_isin }}) / {{ first_event.new_ticker }}</h3>
+                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Акции{% endif %}: {{ first_event.old_ticker }} - {{ first_event.old_instr_nm|default:first_event.old_ticker }} ({{ first_event.old_isin }})<br>
+                        {% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Акции{% endif %}: {{ first_event.new_ticker }} - {{ first_event.new_instr_nm|default:first_event.new_ticker }} ({{ first_event.new_isin }})</h3>
                     {% elif first_event_wrapper.display_type == 'acquisition_info' %}
-                        <h3>{{ first_event.instr_nm|default:first_event.ticker }}{% if first_event.isin %} ({{ first_event.isin }}){% endif %}</h3>
+                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}: {% endif %}{{ first_event.ticker }} - {{ first_event.instr_nm|default:first_event.ticker }}{% if first_event.isin %} ({{ first_event.isin }}){% endif %}</h3>
                     {% elif first_event_wrapper.display_type == 'option' %}
-                        <h3>Опцион: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
+                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Опцион{% endif %}: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
                     {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                        <h3>{% if first_event.ticker or first_event.symbol %}{{ first_event.ticker|default:first_event.symbol }}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% else %}{{ first_event.instr_nm|default_if_none:grouping_isin }}{% endif %}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
+                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Инструмент{% endif %}: {% if first_event.ticker or first_event.symbol %}{{ first_event.ticker|default:first_event.symbol }}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% else %}{{ first_event.instr_nm|default_if_none:grouping_isin }}{% endif %}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
                     {% else %}
                         <h3>{{ grouping_isin }}</h3>
                     {% endif %}
@@ -326,14 +326,14 @@
             <div class="instrument-block">
                 {% with first_event_wrapper=event_list.0 %}{% with first_event=first_event_wrapper.event_details %}
                     {% if first_event_wrapper.display_type == 'conversion_info' %}
-                        <h3>Акции: {{ first_event.old_instr_nm|default:first_event.old_ticker }} ({{ first_event.old_isin }}) / {{ first_event.old_ticker }}<br>
-                        Акции: {{ first_event.new_instr_nm|default:first_event.new_ticker }} ({{ first_event.new_isin }}) / {{ first_event.new_ticker }}</h3>
+                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Акции{% endif %}: {{ first_event.old_ticker }} - {{ first_event.old_instr_nm|default:first_event.old_ticker }} ({{ first_event.old_isin }})<br>
+                        {% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Акции{% endif %}: {{ first_event.new_ticker }} - {{ first_event.new_instr_nm|default:first_event.new_ticker }} ({{ first_event.new_isin }})</h3>
                     {% elif first_event_wrapper.display_type == 'acquisition_info' %}
-                        <h3>{{ first_event.instr_nm|default:first_event.ticker }}{% if first_event.isin %} ({{ first_event.isin }}){% endif %}</h3>
+                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}: {% endif %}{{ first_event.ticker }} - {{ first_event.instr_nm|default:first_event.ticker }}{% if first_event.isin %} ({{ first_event.isin }}){% endif %}</h3>
                     {% elif first_event_wrapper.display_type == 'option' %}
-                        <h3>Опцион: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
+                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Опцион{% endif %}: {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
                     {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                        <h3>{% if first_event.ticker or first_event.symbol %}{{ first_event.ticker|default:first_event.symbol }}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% else %}{{ first_event.instr_nm|default_if_none:grouping_isin }}{% endif %}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
+                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|title }}{% else %}Инструмент{% endif %}: {% if first_event.ticker or first_event.symbol %}{{ first_event.ticker|default:first_event.symbol }}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% else %}{{ first_event.instr_nm|default_if_none:grouping_isin }}{% endif %}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
                     {% else %}
                         <h3>{{ grouping_isin }}</h3>
                     {% endif %}
