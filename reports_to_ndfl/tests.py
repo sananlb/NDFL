@@ -77,7 +77,7 @@ class IBParserConversionLinksTests(SimpleTestCase):
             }
         ]
 
-        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies, *_ = parser._build_fifo_history(
             trades, conversions
         )
 
@@ -143,7 +143,7 @@ class IBParserConversionLinksTests(SimpleTestCase):
             },
         ]
 
-        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies, *_ = parser._build_fifo_history(
             trades, conversions
         )
 
@@ -227,7 +227,7 @@ class IBParserConversionLinksTests(SimpleTestCase):
             }
         ]
 
-        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies, *_ = parser._build_fifo_history(
             trades, conversions
         )
 
@@ -285,7 +285,7 @@ class IBParserExpiredOptionsTests(SimpleTestCase):
             ),
         ]
 
-        history, total_profit, profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+        history, total_profit, profit_by_code, _profit_by_code_currencies, *_ = parser._build_fifo_history(
             trades, conversions=[], acquisitions=[]
         )
 
@@ -563,7 +563,7 @@ class IBParserDividendMatchingTests(SimpleTestCase):
             }
         ]
 
-        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies, *_ = parser._build_fifo_history(
             trades, conversions
         )
 
@@ -632,7 +632,7 @@ class IBParserDividendMatchingTests(SimpleTestCase):
             }
         ]
 
-        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies, *_ = parser._build_fifo_history(
             trades, conversions
         )
 
@@ -717,7 +717,7 @@ class IBParserDividendMatchingTests(SimpleTestCase):
             "2628": "CNE1000002L3",
         }
 
-        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies, *_ = parser._build_fifo_history(
             trades, conversions, symbol_to_isin=symbol_to_isin
         )
 
@@ -890,7 +890,7 @@ class IBParserWarrantCorporateActionsTests(SimpleTestCase):
             )
         ]
 
-        history, _total_profit, _profit_by_code, _profit_by_code_currencies = parser._build_fifo_history(
+        history, _total_profit, _profit_by_code, _profit_by_code_currencies, *_ = parser._build_fifo_history(
             trades, conversions, acquisitions
         )
 

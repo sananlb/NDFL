@@ -19,7 +19,28 @@ class IBParser(BaseBrokerParser):
             empty_other = defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []})
             empty_profit_by_code = {'1530': Decimal(0), '1532': Decimal(0)}
             empty_profit_by_code_currencies = {'1530': {}, '1532': {}}
-            return {}, [], Decimal(0), Decimal(0), False, empty_commissions, empty_other, Decimal(0), empty_profit_by_code, empty_profit_by_code_currencies
+            empty_income_by_code = {'1530': Decimal(0), '1532': Decimal(0)}
+            empty_income_by_code_currencies = {'1530': {}, '1532': {}}
+            empty_cost_by_code = {'1530': Decimal(0), '1532': Decimal(0)}
+            empty_cost_by_code_currencies = {'1530': {}, '1532': {}}
+            return (
+                {},
+                [],
+                Decimal(0),
+                Decimal(0),
+                False,
+                empty_commissions,
+                empty_other,
+                Decimal(0),
+                empty_profit_by_code,
+                empty_profit_by_code_currencies,
+                {},
+                {},
+                empty_income_by_code,
+                empty_income_by_code_currencies,
+                empty_cost_by_code,
+                empty_cost_by_code_currencies,
+            )
 
         sections = {}
         for report in reports:
@@ -60,7 +81,7 @@ class IBParser(BaseBrokerParser):
         # Calculate other commissions by currency
         other_commissions_by_currency = defaultdict(Decimal)
         for category_data in other_commissions.values():
-            for currency, amount in category_data.get('amount_by_currency', {}).items():
+            for currency, amount in category_data.get('currencies', {}).items():
                 other_commissions_by_currency[currency] += amount
         other_commissions_by_currency = dict(other_commissions_by_currency)
 
