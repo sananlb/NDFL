@@ -592,7 +592,9 @@
             <h2>Код дохода 1010</h2>
             <h2>История дивидендов за {{ target_report_year_for_title|default:"указанный" }} год:
                 {% if total_dividends_rub > 0 %}
-                 <p><small>Общая сумма дивидендов до налогов: {{ total_dividends_rub|floatformat:2 }} RUB {% if dividends_by_currency %}{{ dividends_by_currency|format_currency_breakdown }}{% endif %}</p></small> {% endif %}
+                 <p><small>Общая сумма дивидендов до налогов: {{ total_dividends_rub|floatformat:2 }} RUB {% if dividends_by_currency %}{{ dividends_by_currency|format_currency_breakdown }}{% endif %}</small></p>
+                 <p><small>Уплаченный налог: {{ total_dividends_tax_rub|floatformat:2|default:"0.00" }} RUB {% if dividends_tax_by_currency %}{{ dividends_tax_by_currency|format_currency_breakdown }}{% endif %}</small></p>
+                 {% endif %}
                  <br>
             </h2>
             <table>

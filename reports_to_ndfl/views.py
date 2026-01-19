@@ -490,7 +490,8 @@ def upload_xml_file(request):
             profit_by_income_code, profit_by_income_code_currencies, \
             dividends_by_currency, other_commissions_by_currency, \
             income_by_income_code, income_by_income_code_currencies, \
-            cost_by_income_code, cost_by_income_code_currencies = parser.process()
+            cost_by_income_code, cost_by_income_code_currencies, \
+            total_dividends_tax_rub, dividends_tax_by_currency = parser.process()
 
             # Явное преобразование defaultdict в обычные dict
             # Это должно гарантировать, что в шаблон попадут стандартные dict,
@@ -547,6 +548,8 @@ def upload_xml_file(request):
             context['income_by_income_code_currencies'] = income_by_income_code_currencies
             context['cost_by_income_code'] = cost_by_income_code
             context['cost_by_income_code_currencies'] = cost_by_income_code_currencies
+            context['total_dividends_tax_rub'] = total_dividends_tax_rub
+            context['dividends_tax_by_currency'] = dividends_tax_by_currency
             context['dividends_by_currency'] = dividends_by_currency
             context['other_commissions_by_currency'] = other_commissions_by_currency
             context['parsing_error_occurred'] = parsing_error_current_run
@@ -628,7 +631,8 @@ def download_pdf(request):
     profit_by_income_code, profit_by_income_code_currencies, \
     dividends_by_currency, other_commissions_by_currency, \
     income_by_income_code, income_by_income_code_currencies, \
-    cost_by_income_code, cost_by_income_code_currencies = parser.process()
+    cost_by_income_code, cost_by_income_code_currencies, \
+    total_dividends_tax_rub, dividends_tax_by_currency = parser.process()
 
     # Преобразуем defaultdict в обычные dict
     if isinstance(dividend_commissions_data, defaultdict):
@@ -705,6 +709,8 @@ def download_pdf(request):
         'income_by_income_code_currencies': income_by_income_code_currencies,
         'cost_by_income_code': cost_by_income_code,
         'cost_by_income_code_currencies': cost_by_income_code_currencies,
+        'total_dividends_tax_rub': total_dividends_tax_rub,
+        'dividends_tax_by_currency': dividends_tax_by_currency,
         'dividends_by_currency': dividends_by_currency,
         'other_commissions_by_currency': other_commissions_by_currency,
         'dividend_commissions': dividend_commissions_data,

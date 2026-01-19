@@ -40,6 +40,8 @@ class IBParser(BaseBrokerParser):
                 empty_income_by_code_currencies,
                 empty_cost_by_code,
                 empty_cost_by_code_currencies,
+                Decimal(0),
+                {},
             )
 
         sections = {}
@@ -69,6 +71,18 @@ class IBParser(BaseBrokerParser):
 
         total_other_commissions_rub = sum((data.get('total_rub', Decimal(0)) for data in other_commissions.values()), Decimal(0))
         total_dividends_rub = sum((d.get('amount_rub', Decimal(0)) for d in dividends), Decimal(0))
+
+        # Calculate total dividend tax
+        total_dividends_tax_rub = Decimal(0)
+        dividends_tax_by_currency = defaultdict(Decimal)
+        for div in dividends:
+            tax_amount = div.get('tax_amount', Decimal(0))
+            currency = div.get('currency', 'USD')
+            cbr_rate = div.get('cbr_rate', Decimal(0))
+            tax_rub = abs(tax_amount) * cbr_rate if cbr_rate else Decimal(0)
+            total_dividends_tax_rub += tax_rub
+            dividends_tax_by_currency[currency] += abs(tax_amount)
+        dividends_tax_by_currency = dict(dividends_tax_by_currency)
 
         # Calculate dividends by currency
         dividends_by_currency = defaultdict(Decimal)
@@ -102,6 +116,8 @@ class IBParser(BaseBrokerParser):
             income_by_income_code_currencies,
             cost_by_income_code,
             cost_by_income_code_currencies,
+            total_dividends_tax_rub,
+            dividends_tax_by_currency,
         )
 
     def _get_reports(self):

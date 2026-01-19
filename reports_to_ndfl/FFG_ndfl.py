@@ -889,6 +889,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     trade_and_holding_ops = []
     all_dividend_events_final_list = []
     total_dividends_rub_for_year = Decimal(0)
+    total_dividends_tax_rub_for_year = Decimal(0)
     total_sales_profit_rub_for_year = Decimal(0)
     # Для хранения профита по валютам (для кода дохода 1530)
     profit_by_currency_1530 = defaultdict(Decimal)
@@ -899,6 +900,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     total_income_rub_for_year = Decimal(0)
     total_cost_rub_for_year = Decimal(0)
     dividends_by_currency = defaultdict(Decimal)
+    dividends_tax_by_currency = defaultdict(Decimal)
     other_commissions_by_currency = defaultdict(Decimal) 
 
     # ИЗМЕНЕНО: Загружаем ВСЕ файлы пользователя для полной истории, включая покрытие шортов будущими покупками
@@ -1278,8 +1280,12 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         div_event['cbr_rate_str'] = cbr_rate_str_for_event
         div_event['amount_rub'] = (div_event['amount'] * rate_val_div).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         # Налог также нужно перевести в рубли, если он не в рублях и есть курс
-        # Это не сделано в исходном коде, но для корректности НДФЛ это важно.
-        # Пока оставляем tax_amount как есть (предполагая, что он уже в нужной валюте или его не нужно переводить для целей этого отчета)
+        tax_amount = div_event.get('tax_amount', Decimal(0))
+        if tax_amount:
+            tax_rub = (abs(tax_amount) * rate_val_div).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            total_dividends_tax_rub_for_year += tax_rub
+            dividends_tax_by_currency[currency_code_final] += abs(tax_amount)
+
         total_dividends_rub_for_year += div_event['amount_rub']
         # Accumulate dividends by currency
         dividends_by_currency[currency_code_final] += div_event['amount']
@@ -2031,4 +2037,6 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         dict(income_by_currency_1530),
         total_cost_rub_for_year,
         dict(cost_by_currency_1530),
+        total_dividends_tax_rub_for_year,
+        dict(dividends_tax_by_currency),
     )
