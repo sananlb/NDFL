@@ -1195,6 +1195,10 @@ class IBParser(BaseBrokerParser):
                             used_buy_ids.append(lot_id)
                     if lot['q_remaining'] <= 0:
                         buy_lots[symbol].popleft()
+
+                # Добавляем комиссию продажи для всех продаж (не только шортов)
+                fifo_cost_rub += commission_rub
+
                 if remaining > 0:
                     short_sales[symbol].append({
                         'sell_id': trade.get('trade_id'),
@@ -1202,7 +1206,6 @@ class IBParser(BaseBrokerParser):
                         'sell_year': dt_obj.year if dt_obj else None,
                         'sell_details': None,
                     })
-                    fifo_cost_rub += commission_rub
                     if fifo_cost_rub == commission_rub:
                         fifo_cost_str = f"Открытый шорт (расх.: {commission_rub:.2f} RUB)"
                     else:
