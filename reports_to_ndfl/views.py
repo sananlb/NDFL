@@ -488,7 +488,9 @@ def upload_xml_file(request):
             total_sales_profit, parsing_error_current_run, \
             dividend_commissions_data, other_commissions_data, total_other_commissions_rub_val, \
             profit_by_income_code, profit_by_income_code_currencies, \
-            dividends_by_currency, other_commissions_by_currency = parser.process()
+            dividends_by_currency, other_commissions_by_currency, \
+            income_by_income_code, income_by_income_code_currencies, \
+            cost_by_income_code, cost_by_income_code_currencies = parser.process()
 
             # Явное преобразование defaultdict в обычные dict
             # Это должно гарантировать, что в шаблон попадут стандартные dict,
@@ -541,6 +543,10 @@ def upload_xml_file(request):
             context['total_sales_profit_rub'] = total_sales_profit
             context['profit_by_income_code'] = profit_by_income_code
             context['profit_by_income_code_currencies'] = profit_by_income_code_currencies
+            context['income_by_income_code'] = income_by_income_code
+            context['income_by_income_code_currencies'] = income_by_income_code_currencies
+            context['cost_by_income_code'] = cost_by_income_code
+            context['cost_by_income_code_currencies'] = cost_by_income_code_currencies
             context['dividends_by_currency'] = dividends_by_currency
             context['other_commissions_by_currency'] = other_commissions_by_currency
             context['parsing_error_occurred'] = parsing_error_current_run
@@ -620,7 +626,9 @@ def download_pdf(request):
     total_sales_profit, parsing_error, \
     dividend_commissions_data, other_commissions_data, total_other_commissions_rub_val, \
     profit_by_income_code, profit_by_income_code_currencies, \
-    dividends_by_currency, other_commissions_by_currency = parser.process()
+    dividends_by_currency, other_commissions_by_currency, \
+    income_by_income_code, income_by_income_code_currencies, \
+    cost_by_income_code, cost_by_income_code_currencies = parser.process()
 
     # Преобразуем defaultdict в обычные dict
     if isinstance(dividend_commissions_data, defaultdict):
@@ -693,6 +701,10 @@ def download_pdf(request):
         'total_sales_profit_rub': total_sales_profit,
         'profit_by_income_code': profit_by_income_code,
         'profit_by_income_code_currencies': profit_by_income_code_currencies,
+        'income_by_income_code': income_by_income_code,
+        'income_by_income_code_currencies': income_by_income_code_currencies,
+        'cost_by_income_code': cost_by_income_code,
+        'cost_by_income_code_currencies': cost_by_income_code_currencies,
         'dividends_by_currency': dividends_by_currency,
         'other_commissions_by_currency': other_commissions_by_currency,
         'dividend_commissions': dividend_commissions_data,

@@ -892,6 +892,12 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     total_sales_profit_rub_for_year = Decimal(0)
     # Для хранения профита по валютам (для кода дохода 1530)
     profit_by_currency_1530 = defaultdict(Decimal)
+    # Для хранения дохода и затрат по валютам (для кода дохода 1530)
+    income_by_currency_1530 = defaultdict(Decimal)
+    cost_by_currency_1530 = defaultdict(Decimal)
+    # Для хранения общего дохода и затрат в рублях
+    total_income_rub_for_year = Decimal(0)
+    total_cost_rub_for_year = Decimal(0)
     dividends_by_currency = defaultdict(Decimal)
     other_commissions_by_currency = defaultdict(Decimal) 
 
@@ -1735,6 +1741,14 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                             profit_in_currency = sale_amount_curr - total_expenses_in_currency
                             profit_by_currency_1530[currency_code] += profit_in_currency
 
+                            # Считаем доход и затраты по валютам
+                            income_by_currency_1530[currency_code] += sale_amount_curr
+                            cost_by_currency_1530[currency_code] += total_expenses_in_currency
+
+                            # Считаем общий доход и затраты в рублях
+                            total_income_rub_for_year += income_from_sale_gross_rub
+                            total_cost_rub_for_year += total_expenses_for_sale_rub
+
 
     if not final_instrument_event_history and not all_dividend_events_final_list and instruments_with_sales_in_target_year:
          messages.warning(request, f"Найдены продажи в {target_report_year} для {list(instruments_with_sales_in_target_year)}, но не удалось собрать историю операций или дивидендов для них.")
@@ -2013,4 +2027,8 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         dict(profit_by_currency_1530),  # Преобразуем defaultdict в обычный dict
         dict(dividends_by_currency),
         dict(other_commissions_by_currency),
+        total_income_rub_for_year,
+        dict(income_by_currency_1530),
+        total_cost_rub_for_year,
+        dict(cost_by_currency_1530),
     )

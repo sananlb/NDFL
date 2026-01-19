@@ -40,7 +40,9 @@ class IBParser(BaseBrokerParser):
         dividend_accrual_payments = self._parse_dividend_accrual_payments(sections)
         self._parse_fees(sections, other_commissions, dividend_commissions, dividend_accrual_payments)
 
-        instrument_event_history, total_sales_profit, profit_by_income_code, profit_by_income_code_currencies = self._build_fifo_history(
+        (instrument_event_history, total_sales_profit, profit_by_income_code, profit_by_income_code_currencies,
+         income_by_income_code, income_by_income_code_currencies,
+         cost_by_income_code, cost_by_income_code_currencies) = self._build_fifo_history(
             trades, conversions, acquisitions, symbol_to_isin, symbol_to_name
         )
 
@@ -75,6 +77,10 @@ class IBParser(BaseBrokerParser):
             profit_by_income_code_currencies,
             dividends_by_currency,
             other_commissions_by_currency,
+            income_by_income_code,
+            income_by_income_code_currencies,
+            cost_by_income_code,
+            cost_by_income_code_currencies,
         )
 
     def _get_reports(self):
@@ -1354,6 +1360,17 @@ class IBParser(BaseBrokerParser):
             '1530': defaultdict(Decimal),  # {currency: profit_amount}
             '1532': defaultdict(Decimal)
         }
+        # Добавляем структуры для хранения дохода и затрат
+        income_by_income_code = {'1530': Decimal(0), '1532': Decimal(0)}
+        income_by_income_code_currencies = {
+            '1530': defaultdict(Decimal),
+            '1532': defaultdict(Decimal)
+        }
+        cost_by_income_code = {'1530': Decimal(0), '1532': Decimal(0)}
+        cost_by_income_code_currencies = {
+            '1530': defaultdict(Decimal),
+            '1532': defaultdict(Decimal)
+        }
         for symbol, events in instrument_events.items():
             for event in events:
                 if event.get('display_type') != 'trade':
@@ -1383,6 +1400,12 @@ class IBParser(BaseBrokerParser):
                             fifo_cost_in_currency = Decimal(0)
                         profit_in_currency = summ - fifo_cost_in_currency
                         profit_by_income_code_currencies[income_code][currency] += profit_in_currency
+
+                        # Считаем доход и затраты по кодам дохода
+                        income_by_income_code[income_code] += income_rub
+                        income_by_income_code_currencies[income_code][currency] += summ
+                        cost_by_income_code[income_code] += fifo_cost_val
+                        cost_by_income_code_currencies[income_code][currency] += fifo_cost_in_currency
 
         # Собираем карту конвертаций: старый_символ -> новый_символ и новый_символ -> старый_символ
         conversion_map_old_to_new = {}
@@ -1641,7 +1664,19 @@ class IBParser(BaseBrokerParser):
             '1532': dict(profit_by_income_code_currencies['1532'])
         }
 
-        return filtered_history, total_sales_profit_rub, profit_by_income_code, profit_by_income_code_currencies_dict
+        # Преобразуем income и cost currencies в обычные dict
+        income_by_income_code_currencies_dict = {
+            '1530': dict(income_by_income_code_currencies['1530']),
+            '1532': dict(income_by_income_code_currencies['1532'])
+        }
+        cost_by_income_code_currencies_dict = {
+            '1530': dict(cost_by_income_code_currencies['1530']),
+            '1532': dict(cost_by_income_code_currencies['1532'])
+        }
+
+        return (filtered_history, total_sales_profit_rub, profit_by_income_code, profit_by_income_code_currencies_dict,
+                income_by_income_code, income_by_income_code_currencies_dict,
+                cost_by_income_code, cost_by_income_code_currencies_dict)
 
     def _apply_conversion(self, conv, buy_lots, instrument_events, symbol_to_isin=None, symbol_to_name=None):
         if symbol_to_isin is None:
