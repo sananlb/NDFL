@@ -164,7 +164,8 @@
         Дата формирования: {{ generation_date }}
     </div>
 
-    <h1>Расчет операций за {{ target_report_year_for_title }} год на основании отчетов брокера {{ broker_name }}{% if account_number %} счет {{ account_number }}{% endif %} для заполнения декларации 3-НДФЛ</h1>
+    <h1>Отчет для декларации 3-НДФЛ за {{ target_report_year_for_title }} год</h1>
+    <h2 style="margin-top: 5px; margin-bottom: 15px; font-size: 10pt; font-weight: normal; color: #555;">Брокер: {{ broker_name }}{% if account_number %}, счет {{ account_number }}{% endif %}</h2>
 
     <div class="summary-box">
         <p><strong>Код дохода 1530</strong><br>
