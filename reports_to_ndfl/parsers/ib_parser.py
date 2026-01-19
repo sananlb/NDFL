@@ -1138,6 +1138,11 @@ class IBParser(BaseBrokerParser):
                     sell_details = short_entry.get('sell_details')
                     if sell_details:
                         sell_details['fifo_cost_rub_decimal'] += (cover_qty * cost_per_share_rub)
+                        # Накапливаем затраты в валюте для шортов
+                        fifo_cost_by_curr_short = sell_details.setdefault('fifo_cost_by_currency', defaultdict(Decimal))
+                        buy_currency = trade.get('currency', 'USD')
+                        buy_cost_per_share_currency = (proceeds + commission) / quantity if quantity else Decimal(0)
+                        fifo_cost_by_curr_short[buy_currency] += (cover_qty * buy_cost_per_share_currency)
                         used_buy_ids = sell_details.setdefault('used_buy_ids', [])
                         if trade.get('trade_id') not in used_buy_ids:
                             used_buy_ids.append(trade.get('trade_id'))
@@ -1146,6 +1151,9 @@ class IBParser(BaseBrokerParser):
 
                     if short_entry['qty_remaining'] <= 0:
                         if sell_details:
+                            # Конвертируем defaultdict в dict для fifo_cost_by_currency
+                            if 'fifo_cost_by_currency' in sell_details and isinstance(sell_details['fifo_cost_by_currency'], defaultdict):
+                                sell_details['fifo_cost_by_currency'] = dict(sell_details['fifo_cost_by_currency'])
                             sell_details['fifo_cost_rub_str'] = f"{sell_details['fifo_cost_rub_decimal']:.2f} (шорт, покр.)"
                             # Для шортов финансовый результат считаем по году закрытия позиции.
                             # Если шорт был открыт в прошлом году, но закрыт в целевом — сделка должна попасть в отчёт.
@@ -1161,9 +1169,13 @@ class IBParser(BaseBrokerParser):
                 quantity_for_lots = remaining
 
                 if quantity_for_lots > 0:
+                    # Расчет стоимости в оригинальной валюте
+                    cost_per_share_currency = (proceeds + commission) / quantity if quantity else Decimal(0)
                     buy_lots[symbol].append({
                         'q_remaining': quantity_for_lots,
                         'cost_per_share_rub': cost_per_share_rub,
+                        'cost_per_share_currency': cost_per_share_currency,
+                        'currency': trade.get('currency'),
                         'lot_id': trade.get('trade_id'),
                     })
                 fifo_cost_rub = None
@@ -1178,10 +1190,13 @@ class IBParser(BaseBrokerParser):
                     # Базис в IB указан в валюте сделки, переводим в рубли
                     basis_rub = (basis * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
                     cost_per_share_rub = (basis_rub / quantity) if quantity else Decimal(0)
+                    cost_per_share_currency = (basis / quantity) if quantity else Decimal(0)
                     virtual_lot_id = f"VIRTUAL_BUY_{trade.get('trade_id')}"
                     buy_lots[symbol].append({
                         'q_remaining': quantity,
                         'cost_per_share_rub': cost_per_share_rub,
+                        'cost_per_share_currency': cost_per_share_currency,
+                        'currency': trade.get('currency'),
                         'lot_id': virtual_lot_id,
                     })
                     # Добавляем событие виртуальной покупки для отображения
@@ -1218,12 +1233,17 @@ class IBParser(BaseBrokerParser):
 
                 remaining = quantity
                 fifo_cost_rub = Decimal(0)
+                fifo_cost_by_currency = defaultdict(Decimal)
                 used_buy_ids = []
                 commission_rub = (commission * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
                 while remaining > 0 and buy_lots[symbol]:
                     lot = buy_lots[symbol][0]
                     take = min(remaining, lot['q_remaining'])
                     fifo_cost_rub += (take * lot['cost_per_share_rub'])
+                    # Накапливаем затраты в оригинальной валюте покупки
+                    lot_currency = lot.get('currency', 'USD')
+                    lot_cost_in_currency = lot.get('cost_per_share_currency', Decimal(0))
+                    fifo_cost_by_currency[lot_currency] += (take * lot_cost_in_currency)
                     lot['q_remaining'] -= take
                     remaining -= take
                     # Получаем ID оригинальных покупок (из конвертации или напрямую)
@@ -1242,6 +1262,9 @@ class IBParser(BaseBrokerParser):
 
                 # Добавляем комиссию продажи для всех продаж (не только шортов)
                 fifo_cost_rub += commission_rub
+                # Добавляем комиссию продажи в валюте продажи
+                sale_currency = trade.get('currency', 'USD')
+                fifo_cost_by_currency[sale_currency] += commission
 
                 if remaining > 0:
                     short_sales[symbol].append({
@@ -1283,6 +1306,7 @@ class IBParser(BaseBrokerParser):
                 'commission': commission,
                 'fifo_cost_rub_decimal': fifo_cost_rub,
                 'fifo_cost_rub_str': fifo_cost_str,
+                'fifo_cost_by_currency': dict(fifo_cost_by_currency) if fifo_cost_by_currency else {},
                 'is_relevant_for_target_year': bool(dt_obj and dt_obj.year == self.target_year and (trade.get('operation') == 'sell' or trade.get('is_expired'))),
                 'used_buy_ids': used_buy_ids,
                 'link_colors': [],
@@ -1427,23 +1451,24 @@ class IBParser(BaseBrokerParser):
                         income_code = details.get('income_code', '1530')
                         profit_by_income_code[income_code] = profit_by_income_code.get(income_code, Decimal(0)) + profit
 
-                        # Считаем профит в валюте продажи
+                        # Считаем профит и затраты в валютах напрямую из fifo_cost_by_currency
                         currency = details.get('curr_c', 'USD')
                         summ = details.get('summ', Decimal(0))
-                        cbr_rate = details.get('cbr_rate', Decimal(1))
-                        # Конвертируем fifo_cost обратно в валюту продажи
-                        if cbr_rate and cbr_rate != 0:
-                            fifo_cost_in_currency = (fifo_cost_val / cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                        else:
-                            fifo_cost_in_currency = Decimal(0)
-                        profit_in_currency = summ - fifo_cost_in_currency
-                        profit_by_income_code_currencies[income_code][currency] += profit_in_currency
+                        fifo_cost_by_curr = details.get('fifo_cost_by_currency', {})
 
-                        # Считаем доход и затраты по кодам дохода
+                        # Суммируем затраты по всем валютам из FIFO
+                        for curr, cost_in_curr in fifo_cost_by_curr.items():
+                            cost_by_income_code_currencies[income_code][curr] += cost_in_curr
+
+                        # Доход - в валюте продажи
                         income_by_income_code[income_code] += income_rub
                         income_by_income_code_currencies[income_code][currency] += summ
                         cost_by_income_code[income_code] += fifo_cost_val
-                        cost_by_income_code_currencies[income_code][currency] += fifo_cost_in_currency
+
+                        # Профит в валютах: доход в валюте продажи минус затраты по каждой валюте
+                        profit_by_income_code_currencies[income_code][currency] += summ
+                        for curr, cost_in_curr in fifo_cost_by_curr.items():
+                            profit_by_income_code_currencies[income_code][curr] -= cost_in_curr
 
         # Собираем карту конвертаций: старый_символ -> новый_символ и новый_символ -> старый_символ
         conversion_map_old_to_new = {}
@@ -1813,9 +1838,14 @@ class IBParser(BaseBrokerParser):
             # Каждый старый лот становится отдельным новым лотом с сохранением source_lot_ids
             new_qty = qty_used * ratio
             if new_qty > 0:
+                # Пересчитываем стоимость в валюте с учетом нового количества
+                old_cost_per_share_currency = lot.get('cost_per_share_currency', Decimal(0))
+                new_cost_per_share_currency = (qty_used * old_cost_per_share_currency / new_qty) if new_qty else Decimal(0)
                 new_lots.append({
                     'q_remaining': new_qty,
                     'cost_per_share_rub': (cost_used / new_qty) if new_qty else Decimal(0),
+                    'cost_per_share_currency': new_cost_per_share_currency,
+                    'currency': lot.get('currency', 'USD'),
                     'source_lot_ids': lot_source_ids,
                 })
 
@@ -1832,6 +1862,8 @@ class IBParser(BaseBrokerParser):
                 buy_lots[new_symbol].append({
                     'q_remaining': remaining_new,
                     'cost_per_share_rub': Decimal(0),  # Стоимость неизвестна (покупка до периода отчёта)
+                    'cost_per_share_currency': Decimal(0),
+                    'currency': 'USD',  # Default currency
                     'source_lot_ids': [],  # Нет связи с покупками в отчёте
                 })
 
@@ -1890,10 +1922,11 @@ class IBParser(BaseBrokerParser):
         if isin and group_symbol and group_symbol != ticker and group_symbol not in symbol_to_isin:
             symbol_to_isin[group_symbol] = isin
 
-        # Рассчитываем стоимость в рублях
+        # Рассчитываем стоимость в рублях и валюте
         cbr_rate = self._get_cbr_rate(currency, dt_obj) or Decimal(0)
         cost_rub = (cost * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cbr_rate else Decimal(0)
         cost_per_share_rub = (cost_rub / quantity) if quantity else Decimal(0)
+        cost_per_share_currency = (cost / quantity) if quantity else Decimal(0)
 
         # Генерируем уникальный ID для лота
         lot_id = f"ACQ_{ticker}_{dt_obj.strftime('%Y%m%d%H%M%S') if dt_obj else 'unknown'}_{acq_type}"
@@ -1902,6 +1935,8 @@ class IBParser(BaseBrokerParser):
         buy_lots[group_symbol].append({
             'q_remaining': quantity,
             'cost_per_share_rub': cost_per_share_rub,
+            'cost_per_share_currency': cost_per_share_currency,
+            'currency': currency,
             'lot_id': lot_id,
             'source_lot_ids': [lot_id],
         })
