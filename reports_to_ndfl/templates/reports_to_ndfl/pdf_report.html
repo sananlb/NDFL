@@ -138,9 +138,10 @@
         .price-cell { width: auto; }
         .op-cell { width: 8%; white-space: nowrap; }
         .date-cell { white-space: nowrap; }
-        .quantity-cell {
-            white-space: nowrap;
-        }
+        .quantity-cell { white-space: nowrap; }
+        .sum-cell { width: 10%; font-size: 6.5pt; }
+        .commission-cell { width: 8%; font-size: 6.5pt; }
+        .cbr-rate-cell { width: 8%; font-size: 6.5pt; white-space: nowrap; }
         .link-indicators {
             display: inline-block;
             margin-right: 4px;
@@ -212,8 +213,9 @@
                             <th>Инструмент</th>
                             <th class="compact-cell price-cell numeric">Цена</th>
                             <th class="compact-cell numeric">Кол-во</th>
-                            <th class="numeric">Сумма</th>
-                            <th class="numeric">Комиссия</th>
+                            <th class="numeric sum-cell">Сумма</th>
+                            <th class="numeric commission-cell">Комиссия</th>
+                            <th class="numeric cbr-rate-cell">Курс ЦБ</th>
                             <th class="numeric">Итого затрат, Руб</th>
                         </tr>
                     </thead>
@@ -237,8 +239,9 @@
                                         {% endif %}
                                         {{ event.q|default:"-" }}
                                     </td>
-                                    <td class="numeric">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
-                                    <td class="numeric">{{ event.commission|default:"-" }}</td>
+                                    <td class="numeric sum-cell">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
+                                    <td class="numeric commission-cell">{{ event.commission|default:"-" }}</td>
+                                    <td class="numeric cbr-rate-cell">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
                                     <td class="numeric"><strong>{{ event.fifo_cost_rub_str|default:"-" }}</strong></td>
                                 </tr>
                                 {% endif %}
@@ -246,14 +249,14 @@
                                 {% if event.is_in_pdf_range %}
                                 <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
-                                    <td colspan="7"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
+                                    <td colspan="8"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'acquisition_info' %}
                                 {% if event.is_in_pdf_range %}
                                 <tr class="acquisition-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
-                                    <td colspan="7">
+                                    <td colspan="8">
                                         <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
                                         {{ event.quantity|default:'?' }} {{ event.ticker }}
                                         {% if event.source_ticker %} (из {{ event.source_ticker }}){% endif %}
@@ -345,8 +348,9 @@
                             <th>Инструмент</th>
                             <th class="compact-cell price-cell numeric">Цена</th>
                             <th class="compact-cell numeric">Кол-во</th>
-                            <th class="numeric">Сумма</th>
-                            <th class="numeric">Комиссия</th>
+                            <th class="numeric sum-cell">Сумма</th>
+                            <th class="numeric commission-cell">Комиссия</th>
+                            <th class="numeric cbr-rate-cell">Курс ЦБ</th>
                             <th class="numeric">Итого затрат, Руб</th>
                         </tr>
                     </thead>
@@ -370,8 +374,9 @@
                                         {% endif %}
                                         {{ event.q|default:"-" }}
                                     </td>
-                                    <td class="numeric">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
-                                    <td class="numeric">{{ event.commission|default:"-" }}</td>
+                                    <td class="numeric sum-cell">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
+                                    <td class="numeric commission-cell">{{ event.commission|default:"-" }}</td>
+                                    <td class="numeric cbr-rate-cell">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
                                     <td class="numeric"><strong>{{ event.fifo_cost_rub_str|default:"-" }}</strong></td>
                                 </tr>
                                 {% endif %}
@@ -379,14 +384,14 @@
                                 {% if event.is_in_pdf_range %}
                                 <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
-                                    <td colspan="7"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
+                                    <td colspan="8"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'acquisition_info' %}
                                 {% if event.is_in_pdf_range %}
                                 <tr class="acquisition-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
-                                    <td colspan="7">
+                                    <td colspan="8">
                                         <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
                                         {{ event.quantity|default:'?' }} {{ event.ticker }}
                                         {% if event.source_ticker %} (из {{ event.source_ticker }}){% endif %}

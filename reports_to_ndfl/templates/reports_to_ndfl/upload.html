@@ -400,13 +400,13 @@
                         {% else %}<h3>История для ISIN: {{ grouping_isin }}</h3>{% endif %}
                     {% endwith %}{% endwith %}
                     <table>
-                        <thead><tr><th>Дата</th><!-- <th>ID</th> --><th>Операция</th><th>Инструмент</th><th class="numeric">Цена</th><th class="numeric">Кол-во</th><th class="numeric">Сумма</th><th class="numeric">Комиссия</th><th class="numeric">Итого затрат, Руб</th></tr></thead>
+                        <thead><tr><th>Дата</th><!-- <th>ID</th> --><th>Операция</th><th>Инструмент</th><th class="numeric">Цена</th><th class="numeric">Кол-во</th><th class="numeric">Сумма</th><th class="numeric">Комиссия</th><th class="numeric">Курс ЦБ</th><th class="numeric">Итого затрат, Руб</th></tr></thead>
                         <tbody>
                             {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                                 {% if event_wrapper.display_type == 'acquisition_info' %}
                                     <tr class="acquisition-row{% if not event.is_relevant_for_target_year|default:True %} non-relevant-row{% endif %}">
                                         <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
-                                        <td colspan="7">
+                                        <td colspan="8">
                                             <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
                                             {{ event.quantity|default:'?' }} {{ event.ticker }}
                                             {% if event.source_ticker %} (из {{ event.source_ticker }}){% endif %}
@@ -432,12 +432,13 @@
                                         </td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
+                                        <td class="numeric">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
                                         <td class="numeric"><strong>{{ event.fifo_cost_rub_str|default:"-" }}</strong></td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'conversion_info' %}
                                     <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                         <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
-                                        <td colspan="7"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
+                                        <td colspan="8"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'initial_holding' %}
                                     <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
@@ -446,7 +447,7 @@
                                         <td class="numeric">{{ event.p|default:"-" }} <small>{{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.q|default:"-" }}</td>
                                         <td class="numeric">Общ. стоим. {{ event.total_cost_rub_str|default:"-" }} RUB</td>
-                                        <td>-</td><td>-</td>
+                                        <td>-</td><td>-</td><td>-</td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'option' %}
                                     <tr style="border-left: 4px solid #ff9800;">
@@ -467,6 +468,7 @@
                                         </td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
+                                        <td class="numeric">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
                                         <td style="font-style: italic; color: #666;">Учтено в поставке</td>
                                     </tr>
                                 {% endif %}
@@ -500,13 +502,13 @@
                         {% else %}<h3>История для ISIN: {{ grouping_isin }}</h3>{% endif %}
                     {% endwith %}{% endwith %}
                     <table>
-                        <thead><tr><th>Дата</th><!-- <th>ID</th> --><th>Операция</th><th>Инструмент</th><th class="numeric">Цена</th><th class="numeric">Кол-во</th><th class="numeric">Сумма</th><th class="numeric">Комиссия</th><th class="numeric">Итого затрат, Руб</th></tr></thead>
+                        <thead><tr><th>Дата</th><!-- <th>ID</th> --><th>Операция</th><th>Инструмент</th><th class="numeric">Цена</th><th class="numeric">Кол-во</th><th class="numeric">Сумма</th><th class="numeric">Комиссия</th><th class="numeric">Курс ЦБ</th><th class="numeric">Итого затрат, Руб</th></tr></thead>
                         <tbody>
                             {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                                 {% if event_wrapper.display_type == 'acquisition_info' %}
                                     <tr class="acquisition-row{% if not event.is_relevant_for_target_year|default:True %} non-relevant-row{% endif %}">
                                         <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
-                                        <td colspan="7">
+                                        <td colspan="8">
                                             <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
                                             {{ event.quantity|default:'?' }} {{ event.ticker }}
                                             {% if event.source_ticker %} (из {{ event.source_ticker }}){% endif %}
@@ -532,12 +534,13 @@
                                         </td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
+                                        <td class="numeric">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
                                         <td class="numeric"><strong>{{ event.fifo_cost_rub_str|default:"-" }}</strong></td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'conversion_info' %}
                                     <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
                                         <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
-                                        <td colspan="7"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
+                                        <td colspan="8"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'initial_holding' %}
                                     <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
@@ -546,7 +549,7 @@
                                         <td class="numeric">{{ event.p|default:"-" }} <small>{{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.q|default:"-" }}</td>
                                         <td class="numeric">Общ. стоим. {{ event.total_cost_rub_str|default:"-" }} RUB</td>
-                                        <td>-</td><td>-</td>
+                                        <td>-</td><td>-</td><td>-</td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'option' %}
                                     <tr style="border-left: 4px solid #ff9800;">
@@ -567,6 +570,7 @@
                                         </td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
+                                        <td class="numeric">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
                                         <td style="font-style: italic; color: #666;">Учтено в поставке</td>
                                     </tr>
                                 {% endif %}
