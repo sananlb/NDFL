@@ -1145,7 +1145,7 @@ class IBParser(BaseBrokerParser):
                         'display_type': 'trade',
                         'datetime_obj': dt_obj,  # Дата та же (покупка была ранее, но отображаем здесь)
                         'event_details': {
-                            'date': dt_obj.strftime('%Y-%m-%d %H:%M:%S') if dt_obj else '-',
+                            'date': dt_obj.strftime('%d.%m.%Y %H:%M:%S') if dt_obj else '-',
                             'trade_id': virtual_lot_id,
                             'operation': 'buy',
                             'symbol': trade.get('symbol'),
@@ -1219,7 +1219,7 @@ class IBParser(BaseBrokerParser):
                 symbols_with_sales_in_target_year.add(symbol)
 
             event_details = {
-                'date': dt_obj.strftime('%Y-%m-%d %H:%M:%S') if dt_obj else '-',
+                'date': dt_obj.strftime('%d.%m.%Y %H:%M:%S') if dt_obj else '-',
                 'trade_id': trade.get('trade_id'),
                 'operation': trade.get('operation'),
                 'symbol': trade.get('symbol'),

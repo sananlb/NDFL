@@ -994,7 +994,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                         total_cost_rub_init = total_cost_rub_init.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
                                     op_details_dict_for_ref = { 
-                                        'date': earliest_report_start_datetime.strftime('%Y-%m-%d %H:%M:%S') if earliest_report_start_datetime else "N/A",
+                                        'date': earliest_report_start_datetime.strftime('%d.%m.%Y %H:%M:%S') if earliest_report_start_datetime else "N/A",
                                         'trade_id': f'INITIAL_{isin}_{earliest_report_start_datetime.strftime("%Y%m%d") if earliest_report_start_datetime else "NODATE"}', # Более уникальный ID
                                         'operation': 'initial_holding',
                                         'instr_nm': pos_node.findtext('name', isin).strip(), 

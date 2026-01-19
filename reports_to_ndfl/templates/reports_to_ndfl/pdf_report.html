@@ -253,14 +253,14 @@
                             {% elif event_wrapper.display_type == 'conversion_info' %}
                                 {% if event.is_in_pdf_range %}
                                 <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
-                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                     <td colspan="8"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'acquisition_info' %}
                                 {% if event.is_in_pdf_range %}
                                 <tr class="acquisition-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
-                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                     <td colspan="8">
                                         <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
                                         {{ event.quantity|default:'?' }} {{ event.ticker }}
@@ -272,7 +272,7 @@
                             {% elif event_wrapper.display_type == 'initial_holding' %}
                                 {% if event.is_in_pdf_range %}
                                 <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
-                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                     <!-- <td>Нач.</td> -->
                                     <td class="op-cell">Зачисл.</td>
                                     <td>{{ event.ticker|default:event.symbol|default:event.isin }}</td>
@@ -389,14 +389,14 @@
                             {% elif event_wrapper.display_type == 'conversion_info' %}
                                 {% if event.is_in_pdf_range %}
                                 <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
-                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                     <td colspan="8"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                 </tr>
                                 {% endif %}
                             {% elif event_wrapper.display_type == 'acquisition_info' %}
                                 {% if event.is_in_pdf_range %}
                                 <tr class="acquisition-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
-                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                     <td colspan="8">
                                         <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
                                         {{ event.quantity|default:'?' }} {{ event.ticker }}
@@ -408,7 +408,7 @@
                             {% elif event_wrapper.display_type == 'initial_holding' %}
                                 {% if event.is_in_pdf_range %}
                                 <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
-                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td class="date-cell">{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                     <!-- <td>Нач.</td> -->
                                     <td class="op-cell">Зачисл.</td>
                                     <td>{{ event.ticker|default:event.symbol|default:event.isin }}</td>
@@ -477,7 +477,7 @@
             <tbody>
                 {% for div_event in dividend_history %}
                     <tr>
-                        <td>{{ div_event.date|date:"Y-m-d" }}</td>
+                        <td>{{ div_event.date|date:"d.m.Y" }}</td>
                         <td>{{ div_event.ticker|default:"N/A" }} ({{ div_event.instrument_name|default:'' }})</td>
                         <td class="numeric">{{ div_event.amount|floatformat:2 }}</td>
                         <td class="numeric">{{ div_event.tax_amount|floatformat:2 }}</td>
@@ -566,7 +566,7 @@
                         <td class="numeric"><strong>{{ data.total_rub|floatformat:2 }}</strong></td>
                         <td class="details-cell">
                             {% for event in data.raw_events %}
-                                {{ event.date|date:"Y-m-d" }}: {% if event.description %}{{ event.description }}{% elif event.source %}{{ event.source }}{% else %}-{% endif %}{% if not forloop.last %}<br>{% endif %}
+                                {{ event.date|date:"d.m.Y" }}: {% if event.description %}{{ event.description }}{% elif event.source %}{{ event.source }}{% else %}-{% endif %}{% if not forloop.last %}<br>{% endif %}
                             {% endfor %}
                         </td>
                         <td class="details-cell">

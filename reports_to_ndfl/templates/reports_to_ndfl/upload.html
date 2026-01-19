@@ -362,7 +362,7 @@
                             {% for e in debug_acquisition_events %}
                                 <tr>
                                     <td><code>{{ e.grouping_key }}</code></td>
-                                    <td>{{ e.datetime_obj|date:"Y-m-d" }}</td>
+                                    <td>{{ e.datetime_obj|date:"d.m.Y" }}</td>
                                     <td>{{ e.acquisition_type|default:"-" }}</td>
                                     <td>{{ e.ticker|default:"-" }}</td>
                                     <td>{{ e.source_ticker|default:"-" }}</td>
@@ -407,7 +407,7 @@
                             {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                                 {% if event_wrapper.display_type == 'acquisition_info' %}
                                     <tr class="acquisition-row{% if not event.is_relevant_for_target_year|default:True %} non-relevant-row{% endif %}">
-                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                        <td>{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                         <td colspan="8">
                                             <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
                                             {{ event.quantity|default:'?' }} {{ event.ticker }}
@@ -439,12 +439,12 @@
                                     </tr>
                                 {% elif event_wrapper.display_type == 'conversion_info' %}
                                     <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
-                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                        <td>{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                         <td colspan="8"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'initial_holding' %}
                                     <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
-                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d H:i:s" }}</td><!-- <td>Начальный остаток</td> --><td>Зачисление</td>
+                                        <td>{{ event_wrapper.datetime_obj|date:"d.m.Y H:i:s" }}</td><!-- <td>Начальный остаток</td> --><td>Зачисление</td>
                                         <td>{{ event.ticker|default:event.symbol|default:event.isin }}</td>
                                         <td class="numeric">{{ event.p|default:"-" }} <small>{{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.q|default:"-" }}</td>
@@ -510,7 +510,7 @@
                             {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                                 {% if event_wrapper.display_type == 'acquisition_info' %}
                                     <tr class="acquisition-row{% if not event.is_relevant_for_target_year|default:True %} non-relevant-row{% endif %}">
-                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                        <td>{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                         <td colspan="8">
                                             <strong>{% if event.acquisition_type == 'subscription' %}Подписка{% elif event.acquisition_type == 'rights_issue' %}Выдача прав{% elif event.acquisition_type == 'spinoff' %}Спин-офф{% else %}Приобретение{% endif %}:</strong>
                                             {{ event.quantity|default:'?' }} {{ event.ticker }}
@@ -542,12 +542,12 @@
                                     </tr>
                                 {% elif event_wrapper.display_type == 'conversion_info' %}
                                     <tr class="conversion-row{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
-                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d" }}</td>
+                                        <td>{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                         <td colspan="8"><strong>Конвертация:</strong> {{ event.old_quantity_removed|default:'?' }} {{ event.old_ticker }} → {{ event.new_quantity_received|default:'?' }} {{ event.new_ticker }}</td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'initial_holding' %}
                                     <tr class="{% if not event.is_relevant_for_target_year %}non-relevant-row{% endif %}">
-                                        <td>{{ event_wrapper.datetime_obj|date:"Y-m-d H:i:s" }}</td><!-- <td>Начальный остаток</td> --><td>Зачисление</td>
+                                        <td>{{ event_wrapper.datetime_obj|date:"d.m.Y H:i:s" }}</td><!-- <td>Начальный остаток</td> --><td>Зачисление</td>
                                         <td>{{ event.ticker|default:event.symbol|default:event.isin }}</td>
                                         <td class="numeric">{{ event.p|default:"-" }} <small>{{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.q|default:"-" }}</td>
@@ -607,7 +607,7 @@
                 <tbody>
                     {% for div_event in dividend_history %}
                         <tr>
-                            <td>{{ div_event.date|date:"Y-m-d" }}</td>
+                            <td>{{ div_event.date|date:"d.m.Y" }}</td>
                             <td>{{ div_event.ticker|default:"N/A" }} ({{div_event.instrument_name|default:'' }})</td>
                             <td class="numeric">{{ div_event.amount|floatformat:2 }}</td>
                             <td class="numeric">{{ div_event.tax_amount|floatformat:2 }}</td>
@@ -720,7 +720,7 @@
                                 <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
                                 {% for event in data.raw_events %}
                                     <li>
-                                        {{ event.date|date:"Y-m-d" }}:
+                                        {{ event.date|date:"d.m.Y" }}:
                                         {% if event.description %}
                                             {{ event.description }}
                                         {% elif event.source %}
