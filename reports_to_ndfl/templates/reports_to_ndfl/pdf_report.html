@@ -168,19 +168,29 @@
     <h2 style="margin-top: 5px; margin-bottom: 15px; font-size: 14pt; font-weight: normal; color: #333;">Брокер: {{ broker_name }}{% if account_number %}, счет {{ account_number }}{% endif %}</h2>
 
     <div class="summary-box">
-        <p><strong>Код дохода 1530</strong></p>
-        <p style="font-size: 7pt;"><strong>Доход:</strong> {{ income_by_income_code.1530|floatformat:2|default:"0.00" }} RUB {% if income_by_income_code_currencies.1530 %}{{ income_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}</p>
-        <p style="font-size: 7pt;"><strong>Затраты:</strong> {{ cost_by_income_code.1530|floatformat:2|default:"0.00" }} RUB {% if cost_by_income_code_currencies.1530 %}{{ cost_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}</p>
-        <p style="font-size: 7pt;"><strong>Финансовый результат:</strong> {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB {% if profit_by_income_code_currencies.1530 %}{{ profit_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}</p>
-        <p><strong>Код дохода 1532</strong></p>
-        <p style="font-size: 7pt;"><strong>Доход:</strong> {{ income_by_income_code.1532|floatformat:2|default:"0.00" }} RUB {% if income_by_income_code_currencies.1532 %}{{ income_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}</p>
-        <p style="font-size: 7pt;"><strong>Затраты:</strong> {{ cost_by_income_code.1532|floatformat:2|default:"0.00" }} RUB {% if cost_by_income_code_currencies.1532 %}{{ cost_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}</p>
-        <p style="font-size: 7pt;"><strong>Финансовый результат:</strong> {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB {% if profit_by_income_code_currencies.1532 %}{{ profit_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}</p>
-        <p><strong>Код дохода 1010</strong></p>
-        <p style="font-size: 7pt;">Общая сумма дивидендов до налогов: {{ total_dividends_rub|floatformat:2|default:"0.00" }} RUB {% if dividends_by_currency %}{{ dividends_by_currency|format_currency_breakdown }}{% endif %}</p>
-        <p style="font-size: 7pt;">Уплаченный налог: {{ total_dividends_tax_rub|floatformat:2|default:"0.00" }} RUB {% if dividends_tax_by_currency %}{{ dividends_tax_by_currency|format_currency_breakdown }}{% endif %}</p>
-        <p><strong>Прочие расходы и доходы:</strong> {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB {% if other_commissions_by_currency %}{{ other_commissions_by_currency|format_currency_breakdown }}{% endif %}</p>
-        <p><strong>Прочие расходы и доходы связанные с дивидендами:</strong> {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</p>
+        <div style="padding-bottom: 5px; margin-bottom: 5px;">
+            <p style="margin: 0;"><strong>Код дохода 1530</strong></p>
+            <p style="font-size: 7pt; margin: 2px 0;"><strong>Доход:</strong> {{ income_by_income_code.1530|floatformat:2|default:"0.00" }} RUB {% if income_by_income_code_currencies.1530 %}{{ income_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}</p>
+            <p style="font-size: 7pt; margin: 2px 0;"><strong>Затраты:</strong> {{ cost_by_income_code.1530|floatformat:2|default:"0.00" }} RUB {% if cost_by_income_code_currencies.1530 %}{{ cost_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}</p>
+            <p style="font-size: 7pt; margin: 2px 0;"><strong>Финансовый результат:</strong> {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB {% if profit_by_income_code_currencies.1530 %}{{ profit_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}</p>
+        </div>
+        <div style="padding-bottom: 5px; margin-bottom: 5px; border-top: 1px solid #ddd; padding-top: 5px;">
+            <p style="margin: 0;"><strong>Код дохода 1532</strong></p>
+            <p style="font-size: 7pt; margin: 2px 0;"><strong>Доход:</strong> {{ income_by_income_code.1532|floatformat:2|default:"0.00" }} RUB {% if income_by_income_code_currencies.1532 %}{{ income_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}</p>
+            <p style="font-size: 7pt; margin: 2px 0;"><strong>Затраты:</strong> {{ cost_by_income_code.1532|floatformat:2|default:"0.00" }} RUB {% if cost_by_income_code_currencies.1532 %}{{ cost_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}</p>
+            <p style="font-size: 7pt; margin: 2px 0;"><strong>Финансовый результат:</strong> {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB {% if profit_by_income_code_currencies.1532 %}{{ profit_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}</p>
+        </div>
+        <div style="padding-bottom: 5px; margin-bottom: 5px; border-top: 1px solid #ddd; padding-top: 5px;">
+            <p style="margin: 0;"><strong>Код дохода 1010</strong></p>
+            <p style="font-size: 7pt; margin: 2px 0;">Общая сумма дивидендов до налогов: {{ total_dividends_rub|floatformat:2|default:"0.00" }} RUB {% if dividends_by_currency %}{{ dividends_by_currency|format_currency_breakdown }}{% endif %}</p>
+            <p style="font-size: 7pt; margin: 2px 0;">Уплаченный налог: {{ total_dividends_tax_rub|floatformat:2|default:"0.00" }} RUB {% if dividends_tax_by_currency %}{{ dividends_tax_by_currency|format_currency_breakdown }}{% endif %}</p>
+        </div>
+        <div style="padding-bottom: 5px; margin-bottom: 5px; border-top: 1px solid #ddd; padding-top: 5px;">
+            <p style="margin: 2px 0;"><strong>Прочие расходы и доходы:</strong> {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB {% if other_commissions_by_currency %}{{ other_commissions_by_currency|format_currency_breakdown }}{% endif %}</p>
+        </div>
+        <div style="border-top: 1px solid #ddd; padding-top: 5px;">
+            <p style="margin: 2px 0;"><strong>Прочие расходы и доходы связанные с дивидендами:</strong> {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</p>
+        </div>
     </div>
 
     {% if user_comment %}
