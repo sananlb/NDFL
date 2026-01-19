@@ -886,10 +886,12 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     _processing_had_error_local_flag = [False] 
 
     full_instrument_trade_history_for_fifo = defaultdict(list)
-    trade_and_holding_ops = [] 
-    all_dividend_events_final_list = [] 
-    total_dividends_rub_for_year = Decimal(0) 
-    total_sales_profit_rub_for_year = Decimal(0) 
+    trade_and_holding_ops = []
+    all_dividend_events_final_list = []
+    total_dividends_rub_for_year = Decimal(0)
+    total_sales_profit_rub_for_year = Decimal(0)
+    # Для хранения профита по валютам (для кода дохода 1530)
+    profit_by_currency_1530 = defaultdict(Decimal) 
 
     # ИЗМЕНЕНО: Загружаем ВСЕ файлы пользователя для полной истории, включая покрытие шортов будущими покупками
     if files_queryset is None:
@@ -1721,6 +1723,14 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                             profit_for_this_sale_rub = income_from_sale_gross_rub - total_expenses_for_sale_rub
                             total_sales_profit_rub_for_year += profit_for_this_sale_rub
 
+                            # Считаем профит в валюте продажи
+                            if cbr_rate_for_sale and cbr_rate_for_sale != 0:
+                                total_expenses_in_currency = decimal_context.divide(total_expenses_for_sale_rub, cbr_rate_for_sale)
+                            else:
+                                total_expenses_in_currency = Decimal(0)
+                            profit_in_currency = sale_amount_curr - total_expenses_in_currency
+                            profit_by_currency_1530[currency_code] += profit_in_currency
+
 
     if not final_instrument_event_history and not all_dividend_events_final_list and instruments_with_sales_in_target_year:
          messages.warning(request, f"Найдены продажи в {target_report_year} для {list(instruments_with_sales_in_target_year)}, но не удалось собрать историю операций или дивидендов для них.")
@@ -1991,5 +2001,6 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         _processing_had_error_local_flag[0],
         dividend_commissions_details,
         other_commissions_details,
-        total_other_commissions_rub_val
+        total_other_commissions_rub_val,
+        dict(profit_by_currency_1530)  # Преобразуем defaultdict в обычный dict
     )

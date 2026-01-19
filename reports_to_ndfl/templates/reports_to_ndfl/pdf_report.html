@@ -185,8 +185,9 @@
 
     {% if instrument_history_1530 %}
     <div class="section">
-        <h2>История операций с ценными бумагами за {{ target_report_year_for_title }} год (код дохода 1530)</h2>
-        <p style="font-size: 9pt; margin-bottom: 8px;"><strong>Финансовый результат: {{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB {% if profit_by_income_code_currencies.1530 %}{{ profit_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}</strong></p>
+        <p style="font-size: 10pt; margin-bottom: 3px;"><strong>Код дохода 1530</strong></p>
+        <h2>История операций с ценными бумагами за {{ target_report_year_for_title }} год</h2>
+        <p style="font-size: 9pt; margin-bottom: 8px;">Финансовый результат: <strong>{{ profit_by_income_code.1530|floatformat:2|default:"0.00" }} RUB</strong> {% if profit_by_income_code_currencies.1530 %}{{ profit_by_income_code_currencies.1530|format_currency_breakdown }}{% endif %}</p>
 
         {% for grouping_isin, event_list in instrument_history_1530.items %}
             <div class="instrument-block">
@@ -320,8 +321,9 @@
 
     {% if instrument_history_1532 %}
     <div class="section">
-        <h2>История операций по производным фин. инструментам за {{ target_report_year_for_title }} год (код дохода 1532)</h2>
-        <p style="font-size: 9pt; margin-bottom: 8px;"><strong>Финансовый результат: {{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB {% if profit_by_income_code_currencies.1532 %}{{ profit_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}</strong></p>
+        <p style="font-size: 10pt; margin-bottom: 3px;"><strong>Код дохода 1532</strong></p>
+        <h2>История операций по производным фин. инструментам за {{ target_report_year_for_title }} год</h2>
+        <p style="font-size: 9pt; margin-bottom: 8px;">Финансовый результат: <strong>{{ profit_by_income_code.1532|floatformat:2|default:"0.00" }} RUB</strong> {% if profit_by_income_code_currencies.1532 %}{{ profit_by_income_code_currencies.1532|format_currency_breakdown }}{% endif %}</p>
 
         {% for grouping_isin, event_list in instrument_history_1532.items %}
             <div class="instrument-block">
