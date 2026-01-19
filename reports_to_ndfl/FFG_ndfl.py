@@ -1277,6 +1277,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                     if not fetched_f: cbr_rate_str_for_event += " (ближ.)"
                 else: cbr_rate_str_for_event = "не найден"
             else: cbr_rate_str_for_event = "валюта?"
+        div_event['cbr_rate'] = rate_val_div
         div_event['cbr_rate_str'] = cbr_rate_str_for_event
         div_event['amount_rub'] = (div_event['amount'] * rate_val_div).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         # Налог также нужно перевести в рубли, если он не в рублях и есть курс
