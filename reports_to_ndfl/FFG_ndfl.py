@@ -2001,6 +2001,16 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
             final_instrument_event_history[grouping_key] = []
         final_instrument_event_history[grouping_key].append(option_event)
 
+    # Шаблоны используют `event.symbol` (как у IB). Для FFG исторически этого ключа не было,
+    # из-за чего выражения вида `event.ticker|default:event.symbol` падали с VariableDoesNotExist
+    # при отсутствии `symbol`. Делаем контракт данных совместимым: гарантируем наличие ключей.
+    for _grouping_key, events in final_instrument_event_history.items():
+        for event_wrapper in events or []:
+            details = event_wrapper.get('event_details')
+            if isinstance(details, dict):
+                details.setdefault('ticker', None)
+                details.setdefault('symbol', details.get('ticker'))
+
     # Определяем диапазон дат для PDF (от первой релевантной покупки до последней релевантной продажи)
     for symbol, events in final_instrument_event_history.items():
         min_relevant_date = None

@@ -220,7 +220,7 @@
                     {% elif first_event_wrapper.display_type == 'option' %}
                         <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|instrument_type_plural }}{% else %}Опционы{% endif %} {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
                     {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|instrument_type_plural }}{% else %}Инструменты{% endif %} {% if first_event.ticker or first_event.symbol %}{{ first_event.ticker|default:first_event.symbol }}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% else %}{{ first_event.instr_nm|default_if_none:grouping_isin }}{% endif %}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
+                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|instrument_type_plural }}{% else %}Инструменты{% endif %} {% if first_event.ticker or first_event.symbol %}{% firstof first_event.ticker first_event.symbol %}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% else %}{{ first_event.instr_nm|default_if_none:grouping_isin }}{% endif %}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
                     {% else %}
                         <h3>{{ grouping_isin }}</h3>
                     {% endif %}
@@ -249,7 +249,7 @@
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell">{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
-                                    <td>{{ event.ticker|default:event.symbol|default:event.isin }}</td>
+                                    <td>{% firstof event.ticker event.symbol event.isin %}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
@@ -292,7 +292,7 @@
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                     <!-- <td>Нач.</td> -->
                                     <td class="op-cell">Зачисл.</td>
-                                    <td>{{ event.ticker|default:event.symbol|default:event.isin }}</td>
+                                    <td>{% firstof event.ticker event.symbol event.isin %}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
@@ -314,7 +314,7 @@
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell"><strong>Опцион</strong></td>
-                                    <td>{{ event.ticker|default:event.symbol|default:"-" }}</td>
+                                    <td>{% firstof event.ticker event.symbol "-" %}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
@@ -355,7 +355,7 @@
                     {% elif first_event_wrapper.display_type == 'option' %}
                         <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|instrument_type_plural }}{% else %}Опционы{% endif %} {{ first_event.instr_nm|default_if_none:"N/A" }}</h3>
                     {% elif first_event_wrapper.display_type == 'trade' or first_event_wrapper.display_type == 'initial_holding' %}
-                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|instrument_type_plural }}{% else %}Инструменты{% endif %} {% if first_event.ticker or first_event.symbol %}{{ first_event.ticker|default:first_event.symbol }}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% else %}{{ first_event.instr_nm|default_if_none:grouping_isin }}{% endif %}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
+                        <h3>{% if first_event.instr_kind %}{{ first_event.instr_kind|instrument_type_plural }}{% else %}Инструменты{% endif %} {% if first_event.ticker or first_event.symbol %}{% firstof first_event.ticker first_event.symbol %}{% if first_event.instr_nm %} - {{ first_event.instr_nm }}{% endif %}{% else %}{{ first_event.instr_nm|default_if_none:grouping_isin }}{% endif %}{% if first_event.isin and first_event.isin != grouping_isin %} ({{ first_event.isin }}){% endif %}</h3>
                     {% else %}
                         <h3>{{ grouping_isin }}</h3>
                     {% endif %}
@@ -384,7 +384,7 @@
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell">{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
-                                    <td>{{ event.ticker|default:event.symbol|default:event.isin }}</td>
+                                    <td>{% firstof event.ticker event.symbol event.isin %}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
@@ -427,7 +427,7 @@
                                     <td class="date-cell">{{ event_wrapper.datetime_obj|date:"d.m.Y" }}</td>
                                     <!-- <td>Нач.</td> -->
                                     <td class="op-cell">Зачисл.</td>
-                                    <td>{{ event.ticker|default:event.symbol|default:event.isin }}</td>
+                                    <td>{% firstof event.ticker event.symbol event.isin %}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
@@ -449,7 +449,7 @@
                                     <td class="date-cell">{{ event.date|default:"-" }}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell"><strong>Опцион</strong></td>
-                                    <td>{{ event.ticker|default:event.symbol|default:"-" }}</td>
+                                    <td>{% firstof event.ticker event.symbol "-" %}</td>
                                     <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
