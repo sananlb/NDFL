@@ -29,7 +29,8 @@
       "Bash(ssh:*)",
       "Bash(python -m py_compile:*)",
       "Bash(git push:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(docker-compose logs:*)"
     ],
     "deny": []
   }

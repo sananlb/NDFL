@@ -1001,14 +1001,15 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                     else: # RUB
                                         total_cost_rub_init = total_cost_rub_init.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-                                    op_details_dict_for_ref = { 
+                                    op_details_dict_for_ref = {
                                         'date': earliest_report_start_datetime.strftime('%d.%m.%Y %H:%M:%S') if earliest_report_start_datetime else "N/A",
                                         'trade_id': f'INITIAL_{isin}_{earliest_report_start_datetime.strftime("%Y%m%d") if earliest_report_start_datetime else "NODATE"}', # Более уникальный ID
                                         'operation': 'initial_holding',
-                                        'instr_nm': pos_node.findtext('name', isin).strip(), 
+                                        'instr_nm': pos_node.findtext('name', isin).strip(),
                                         'isin': isin, 'p': bal_price_per_share_curr, 'curr_c': currency_code, 'q': quantity,
-                                        'summ': quantity * bal_price_per_share_curr, 'commission': Decimal(0), 
+                                        'summ': quantity * bal_price_per_share_curr, 'commission': Decimal(0),
                                         'transaction_cbr_rate_str': f"{rate_decimal_init:.4f}" if rate_decimal_init else "-",
+                                        'cbr_rate': rate_decimal_init if rate_decimal_init is not None else Decimal('0'),
                                         'file_source': f"Нач. остаток из {file_instance.original_filename}", 'total_cost_rub_str': f"{total_cost_rub_init:.2f}"
                                     }
                                     trade_and_holding_ops.append({
@@ -1074,6 +1075,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                         trade_data_dict['transaction_cbr_rate_str'] = f"{rate_decimal_opt:.4f}"
                                         trade_data_dict['datetime_obj'] = op_datetime_obj_opt
                                         trade_data_dict['cbr_rate_decimal'] = rate_decimal_opt
+                                        trade_data_dict['cbr_rate'] = rate_decimal_opt
 
                                         # Парсим структуру опциона из названия
                                         option_name = trade_data_dict.get('instr_nm', '')
@@ -1132,7 +1134,8 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                                 if not fetched_exactly: rate_str += " (ближ.)" 
                                             else: _processing_had_error_local_flag[0] = True; rate_str = "не найден"; messages.error(request, f"Курс {currency_code} не найден для сделки {current_trade_id_for_log} на {op_datetime_obj.date().strftime('%d.%m.%Y')}.")
                                         else: _processing_had_error_local_flag[0] = True; rate_str = "валюта не найдена"; messages.error(request, f"Валюта {currency_code} не найдена для сделки {current_trade_id_for_log}.")
-                                trade_data_dict['transaction_cbr_rate_str'] = rate_str 
+                                trade_data_dict['transaction_cbr_rate_str'] = rate_str
+                                trade_data_dict['cbr_rate'] = rate_decimal if rate_decimal is not None else Decimal('0')
 
                                 if currency_code != 'RUB' and rate_decimal is None: _processing_had_error_local_flag[0] = True; continue
 
@@ -2022,6 +2025,14 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
             else:
                 event_details['is_in_pdf_range'] = event_details.get('is_relevant_for_target_year', False)
 
+    # Calculate dividend commissions by currency
+    dividend_commissions_by_currency = defaultdict(Decimal)
+    for category_data in dividend_commissions_details.values():
+        amount_by_currency = category_data.get('amount_by_currency')
+        if amount_by_currency and isinstance(amount_by_currency, dict):
+            for currency, amount in amount_by_currency.items():
+                dividend_commissions_by_currency[currency] += amount
+
     return (
         final_instrument_event_history,
         all_dividend_events_final_list,
@@ -2040,4 +2051,5 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         dict(cost_by_currency_1530),
         total_dividends_tax_rub_for_year,
         dict(dividends_tax_by_currency),
+        dict(dividend_commissions_by_currency),
     )

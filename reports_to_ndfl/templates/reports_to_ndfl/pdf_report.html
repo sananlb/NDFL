@@ -192,7 +192,7 @@
     </div>
 
     <div class="summary-box">
-        <p><strong>Прочие расходы и доходы связанные с дивидендами:</strong> {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB</p>
+        <p><strong>Прочие расходы и доходы связанные с дивидендами:</strong> {{ total_dividend_commissions_rub|default:0|floatformat:2 }} RUB {% if dividend_commissions_by_currency %}{{ dividend_commissions_by_currency|format_currency_breakdown }}{% endif %}</p>
     </div>
 
     {% if user_comment %}

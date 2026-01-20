@@ -42,6 +42,7 @@ class IBParser(BaseBrokerParser):
                 empty_cost_by_code_currencies,
                 Decimal(0),
                 {},
+                {},
             )
 
         sections = {}
@@ -99,6 +100,15 @@ class IBParser(BaseBrokerParser):
                 other_commissions_by_currency[currency] += amount
         other_commissions_by_currency = dict(other_commissions_by_currency)
 
+        # Calculate dividend commissions by currency
+        dividend_commissions_by_currency = defaultdict(Decimal)
+        for category_data in dividend_commissions.values():
+            amount_by_currency = category_data.get('amount_by_currency')
+            if amount_by_currency and isinstance(amount_by_currency, dict):
+                for currency, amount in amount_by_currency.items():
+                    dividend_commissions_by_currency[currency] += amount
+        dividend_commissions_by_currency = dict(dividend_commissions_by_currency)
+
         return (
             instrument_event_history,
             dividends,
@@ -118,6 +128,7 @@ class IBParser(BaseBrokerParser):
             cost_by_income_code_currencies,
             total_dividends_tax_rub,
             dividends_tax_by_currency,
+            dividend_commissions_by_currency,
         )
 
     def _get_reports(self):
