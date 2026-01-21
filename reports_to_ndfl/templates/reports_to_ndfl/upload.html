@@ -82,6 +82,37 @@
         .option-info-row td { background-color: #f0f8ff !important; font-size: 0.95em; }
         .option-info-row.non-relevant-row td { color: #999; }
 
+        /* Стили для разбитых сделок */
+        .split-trade-row {
+            border-left: 4px solid #9c27b0 !important;
+        }
+        .split-trade-row td {
+            background-color: #f3e5f5 !important;
+        }
+        .split-trade-row.split-first td {
+            border-top: 2px solid #9c27b0;
+        }
+        .split-trade-row.split-last td {
+            border-bottom: 2px solid #9c27b0;
+        }
+        .split-badge {
+            display: inline-block;
+            background: #9c27b0;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-top: 4px;
+        }
+        .split-trade-row.non-relevant-row td {
+            background-color: #e8e0eb !important;
+            color: #777;
+        }
+        .split-trade-row.non-relevant-row .split-badge {
+            background: #b085b5;
+        }
+
         /* Цветные индикаторы связей */
         .quantity-cell {
             display: flex !important;
@@ -417,8 +448,8 @@
                                         </td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'trade' %}
-                                    <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}">
-                                        <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">📋 Исполнение опциона</span>{% endif %}</td>
+                                    <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}{% if event.is_split_part %} split-trade-row split-part-{{ event.split_part_index }}{% if event.split_part_index == 0 %} split-first{% endif %}{% if event.split_part_index == event.split_total_parts|add:"-1" %} split-last{% endif %}{% endif %}">
+                                        <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">📋 Исполнение опциона</span>{% endif %}{% if event.is_split_part %}<br><span class="split-badge">{{ event.split_part_note }}</span>{% endif %}</td>
                                         <!-- <td> {{ event.trade_id|default:"-" }}</td> -->
                                         <td>{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
                                         <td>{% firstof event.ticker event.symbol event.isin %}</td>
@@ -521,8 +552,8 @@
                                         </td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'trade' %}
-                                    <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}">
-                                        <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">Исполнение опциона</span>{% endif %}</td>
+                                    <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}{% if event.is_split_part %} split-trade-row split-part-{{ event.split_part_index }}{% if event.split_part_index == 0 %} split-first{% endif %}{% if event.split_part_index == event.split_total_parts|add:"-1" %} split-last{% endif %}{% endif %}">
+                                        <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">Исполнение опциона</span>{% endif %}{% if event.is_split_part %}<br><span class="split-badge">{{ event.split_part_note }}</span>{% endif %}</td>
                                         <!-- <td> {{ event.trade_id|default:"-" }}</td> -->
                                         <td>{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
                                         <td>{% firstof event.ticker event.symbol event.isin %}</td>

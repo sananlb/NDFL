@@ -342,18 +342,19 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                  cost_per_share_of_this_buy_rub_incl_comm = ((buy_total_cost_shares_rub + buy_total_commission_rub) / buy_quantity_original).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
             
             # 1. Попытка покрыть ожидающие короткие продажи этой покупкой
+            qty_used_for_short_cover = Decimal(0)  # Для отслеживания разбиения
             if op_isin in pending_short_sales and pending_short_sales[op_isin]:
                 temp_pending_shorts_for_isin = list(pending_short_sales[op_isin]) # Работаем с копией для безопасного изменения deque
-                
+
                 for i in range(len(temp_pending_shorts_for_isin)):
                     if buy_quantity_remaining_for_lot <= Decimal('0.000001'): break # Покупка исчерпана
 
                     pending_short_entry = pending_short_sales[op_isin][0] # Берем самую старую
-                    
+
                     if pending_short_entry['datetime_obj'].date() > op_date :
                         # Этот шорт был позже текущей покупки, нелогично, но может случиться при ошибках данных. Пропускаем.
                         # Или если мы хотим покрывать только шорты, которые были ДО покупки:
-                        break 
+                        break
 
                     original_short_trade_ref = pending_short_entry['original_trade_dict_ref']
                     qty_to_cover_short = min(buy_quantity_remaining_for_lot, pending_short_entry['q_uncovered'])
@@ -369,7 +370,7 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                     elif op['currency'] == 'RUB':
                         cost_of_shares_for_closing_rub = cost_of_shares_for_closing_rub.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                         commission_for_closing_buy_rub = commission_for_closing_buy_rub.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                    
+
                     # Обновляем FIFO стоимость для короткой продажи:
                     # Изначально там была только комиссия самой продажи (sell_commission_rub).
                     # Добавляем стоимость акций для закрытия и комиссию покупки для закрытия.
@@ -377,7 +378,14 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                         (pending_short_entry['sell_commission_rub'] + \
                          cost_of_shares_for_closing_rub + \
                          commission_for_closing_buy_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                    
+
+                    # Обновляем split_parts для шорта, если он был разбитой сделкой
+                    if original_short_trade_ref.get('is_split_trade') and original_short_trade_ref.get('split_parts'):
+                        for part in original_short_trade_ref['split_parts']:
+                            if part['part_type'] == 'open_short':
+                                part['fifo_cost_rub'] = original_short_trade_ref['fifo_cost_rub_decimal']
+
+                    qty_used_for_short_cover += qty_to_cover_short
                     buy_quantity_remaining_for_lot -= qty_to_cover_short
                     pending_short_entry['q_uncovered'] -= qty_to_cover_short
 
@@ -391,15 +399,56 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                         pending_short_sales[op_isin].popleft()
                     else:
                         original_short_trade_ref['short_sale_status'] = 'partially_covered_short'
-            
+
             if buy_quantity_remaining_for_lot > Decimal('0.000001'):
                 original_id = op.get('trade_id', 'INITIAL' if op_type == 'initial_holding' else 'BUY_NO_ID')
-                buy_lots_deques[op_isin].append({
-                    'q_remaining': buy_quantity_remaining_for_lot,
-                    'cost_per_share_rub': cost_per_share_of_this_buy_rub_incl_comm, # Полная стоимость за 1 шт этой покупки
-                    'date': op_date,
-                    'original_trade_id': original_id
-                })
+
+                # Если покупка была частично использована для покрытия шорта - это смешанная сделка
+                if qty_used_for_short_cover > Decimal('0.000001') and trade_dict_ref:
+                    commission_for_short_cover_rub = (buy_total_commission_rub * qty_used_for_short_cover / buy_quantity_original).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    commission_for_long_open_rub = (buy_total_commission_rub - commission_for_short_cover_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                    trade_dict_ref['split_parts'] = [
+                        {
+                            'part_type': 'close_short',
+                            'quantity': qty_used_for_short_cover,
+                            'commission_rub': commission_for_short_cover_rub,
+                            'fifo_cost_rub': None,  # Для покупки не показываем затраты
+                            'note': 'закр. шорт'
+                        },
+                        {
+                            'part_type': 'open_long',
+                            'quantity': buy_quantity_remaining_for_lot,
+                            'commission_rub': commission_for_long_open_rub,
+                            'fifo_cost_rub': None,
+                            'note': 'откр. лонг'
+                        }
+                    ]
+                    trade_dict_ref['is_split_trade'] = True
+                    trade_dict_ref['split_group_id'] = f"split_buy_{op.get('trade_id', id(trade_dict_ref))}"
+
+                    # Пересчитываем cost_per_share только для части, идущей в лонг
+                    cost_for_long_part_rub = (buy_price_per_share_orig_curr * buy_quantity_remaining_for_lot)
+                    if op['currency'] != 'RUB' and op['cbr_rate_decimal'] is not None:
+                        cost_for_long_part_rub = (cost_for_long_part_rub * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    else:
+                        cost_for_long_part_rub = cost_for_long_part_rub.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                    cost_per_share_for_long_part = ((cost_for_long_part_rub + commission_for_long_open_rub) / buy_quantity_remaining_for_lot).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
+
+                    buy_lots_deques[op_isin].append({
+                        'q_remaining': buy_quantity_remaining_for_lot,
+                        'cost_per_share_rub': cost_per_share_for_long_part,
+                        'date': op_date,
+                        'original_trade_id': original_id
+                    })
+                else:
+                    buy_lots_deques[op_isin].append({
+                        'q_remaining': buy_quantity_remaining_for_lot,
+                        'cost_per_share_rub': cost_per_share_of_this_buy_rub_incl_comm, # Полная стоимость за 1 шт этой покупки
+                        'date': op_date,
+                        'original_trade_id': original_id
+                    })
 
 
         elif op.get('operation_type') == 'sell':
@@ -517,38 +566,62 @@ def _process_all_operations_for_fifo(request, operations_to_process,
 
             # Этап 3: Если все еще не покрыто - это короткая продажа (или ее часть)
             if sell_q_to_cover > Decimal('0.000001'):
+                total_sell_q = op['quantity']
+
+                # Пропорциональное распределение комиссии между частями сделки
+                if final_q_covered_by_past_or_conv > Decimal('0.000001'):
+                    # Смешанная сделка: часть закрывает лонг, часть открывает шорт
+                    commission_for_long_part_rub = (commission_sell_rub * final_q_covered_by_past_or_conv / total_sell_q).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    commission_for_short_part_rub = (commission_sell_rub - commission_for_long_part_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                    # Пересчитываем fifo_cost для части, закрывающей лонг (с пропорциональной комиссией)
+                    fifo_cost_long_part = (cost_of_shares_from_past_buys_rub + commission_for_long_part_rub + option_cost_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                    # Сохраняем информацию о разбиении для отображения
+                    trade_dict_ref['split_parts'] = [
+                        {
+                            'part_type': 'close_long',
+                            'quantity': final_q_covered_by_past_or_conv,
+                            'commission_rub': commission_for_long_part_rub,
+                            'fifo_cost_rub': fifo_cost_long_part,
+                            'note': 'закр. лонг'
+                        },
+                        {
+                            'part_type': 'open_short',
+                            'quantity': sell_q_to_cover,
+                            'commission_rub': commission_for_short_part_rub,
+                            'fifo_cost_rub': None,  # Будет рассчитано при покрытии
+                            'note': 'откр. шорт'
+                        }
+                    ]
+                    trade_dict_ref['is_split_trade'] = True
+                    trade_dict_ref['split_group_id'] = f"split_sell_{op.get('trade_id', id(trade_dict_ref))}"
+
+                    # Обновляем fifo_cost_rub_decimal только для части закрывающей лонг
+                    trade_dict_ref['fifo_cost_rub_decimal'] = fifo_cost_long_part
+                else:
+                    # Полностью шорт - комиссия целиком для шорта
+                    commission_for_short_part_rub = commission_sell_rub
+
                 pending_short_sales[op_isin].append({
                     'trade_id': op.get('trade_id'),
-                    'datetime_obj': op_datetime_obj, # Сохраняем полный datetime для точного порядка
+                    'datetime_obj': op_datetime_obj,
                     'q_uncovered': sell_q_to_cover,
                     'original_trade_dict_ref': trade_dict_ref,
-                    'sell_commission_rub': commission_sell_rub 
+                    'sell_commission_rub': commission_for_short_part_rub  # Только пропорциональная часть комиссии для шорта
                 })
                 trade_dict_ref['short_sale_status'] = 'pending_cover'
-                # fifo_cost_rub_decimal уже содержит (стоимость_покрытой_части_акций + комиссия_продажи)
-
-                # Убрано уведомление о непокрытых продажах (шортах)
-                # msg_type = messages.info if final_q_covered_by_past_or_conv == 0 else messages.warning
-                # message_text = (f"Продажа {op.get('trade_id','N/A')} ({op_isin}) "
-                #                 f"{'не покрыта' if final_q_covered_by_past_or_conv == 0 else 'не полностью покрыта'} "
-                #                 f"прошлыми покупками/конвертациями. "
-                #                 f"Требовалось: {op['quantity']}, покрыто FIFO (до): {final_q_covered_by_past_or_conv}. "
-                #                 f"Остаток {sell_q_to_cover} зарегистрирован как потенциальный шорт. "
-                #                 f"Текущие расходы (по ранее покрытой части + комиссия продажи): {trade_dict_ref['fifo_cost_rub_decimal']:.2f} RUB.")
-                # msg_type(request, message_text)
 
                 # Строка fifo_cost_rub_str будет установлена позже
-                if final_q_covered_by_past_or_conv > 0 : # Было частичное покрытие до шорта
-                     trade_dict_ref['fifo_cost_rub_str'] = f"Частично: {trade_dict_ref['fifo_cost_rub_decimal']:.2f} (для {final_q_covered_by_past_or_conv} из {op['quantity']}) + шорт {sell_q_to_cover} шт."
-                else: # Полностью ушла в шорт с самого начала
+                if final_q_covered_by_past_or_conv > 0:
+                     trade_dict_ref['fifo_cost_rub_str'] = f"Разбито: {trade_dict_ref['fifo_cost_rub_decimal']:.2f} (закр. {final_q_covered_by_past_or_conv} шт.) + шорт {sell_q_to_cover} шт."
+                else:
                      trade_dict_ref['fifo_cost_rub_str'] = f"Шорт {sell_q_to_cover} шт. (расходы: {commission_sell_rub:.2f} RUB ком.)"
 
-            elif abs(final_q_covered_by_past_or_conv - op['quantity']) > Decimal('0.000001'): # Покрыто, но не точно (из-за округления и т.д.)
+            elif abs(final_q_covered_by_past_or_conv - op['quantity']) > Decimal('0.000001'):
                  trade_dict_ref['fifo_cost_rub_str'] = f"Частично: {trade_dict_ref['fifo_cost_rub_decimal']:.2f} (для {final_q_covered_by_past_or_conv} из {op['quantity']})"
-                 # trade_dict_ref['short_sale_status'] остается 'covered_by_past'
-            else: # Полностью покрыто прошлыми/конвертациями
+            else:
                  trade_dict_ref['fifo_cost_rub_str'] = f"{trade_dict_ref['fifo_cost_rub_decimal']:.2f}"
-                 # trade_dict_ref['short_sale_status'] остается 'covered_by_past'
 
     # Пост-обработка: определение окончательного статуса для "pending_cover" и "partially_covered_short"
     for isin_key, shorts_deque in pending_short_sales.items():
@@ -1391,16 +1464,63 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     all_display_events = []
     for isin_key, trades_list_for_isin in full_instrument_trade_history_for_fifo.items():
         for trade_dict_updated_with_fifo in trades_list_for_isin:
-            dt_obj = datetime.min 
-            if trade_dict_updated_with_fifo.get('date'): 
+            dt_obj = datetime.min
+            if trade_dict_updated_with_fifo.get('date'):
                 try: dt_obj = datetime.strptime(trade_dict_updated_with_fifo['date'], '%Y-%m-%d %H:%M:%S')
                 except ValueError: pass
-            
+
             # Добавляем is_aggregated по умолчанию false, если его нет
             trade_dict_updated_with_fifo.setdefault('is_aggregated', False)
             trade_dict_updated_with_fifo.setdefault('short_sale_status', None) # Убедимся, что поле есть
-            
-            all_display_events.append({'display_type': 'trade', 'datetime_obj': dt_obj, 'event_details': trade_dict_updated_with_fifo, 'isin_group_key': trade_dict_updated_with_fifo.get('isin')})
+
+            # Если сделка разбита на части - создаём отдельные события для каждой части
+            if trade_dict_updated_with_fifo.get('is_split_trade') and trade_dict_updated_with_fifo.get('split_parts'):
+                split_parts = trade_dict_updated_with_fifo['split_parts']
+                split_group_id = trade_dict_updated_with_fifo.get('split_group_id', f"split_{id(trade_dict_updated_with_fifo)}")
+
+                for part_idx, part in enumerate(split_parts):
+                    # Создаём копию словаря сделки для каждой части
+                    part_trade_dict = trade_dict_updated_with_fifo.copy()
+                    part_trade_dict['is_split_part'] = True
+                    part_trade_dict['split_group_id'] = split_group_id
+                    part_trade_dict['split_part_index'] = part_idx
+                    part_trade_dict['split_total_parts'] = len(split_parts)
+                    part_trade_dict['split_part_type'] = part['part_type']
+                    part_trade_dict['split_part_note'] = part['note']
+
+                    # Обновляем количество и комиссию для этой части
+                    part_trade_dict['q'] = part['quantity']
+                    part_trade_dict['split_commission_rub'] = part['commission_rub']
+
+                    # Для продаж обновляем сумму пропорционально
+                    original_q = trade_dict_updated_with_fifo.get('q', Decimal(1))
+                    original_summ = trade_dict_updated_with_fifo.get('summ', Decimal(0))
+                    if original_q > 0:
+                        part_trade_dict['summ'] = (original_summ * part['quantity'] / original_q).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                    # Комиссия в оригинальной валюте тоже пропорционально
+                    original_commission = trade_dict_updated_with_fifo.get('commission', Decimal(0))
+                    if original_q > 0:
+                        part_trade_dict['commission'] = (original_commission * part['quantity'] / original_q).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                    # FIFO стоимость для этой части
+                    if part['fifo_cost_rub'] is not None:
+                        part_trade_dict['fifo_cost_rub_decimal'] = part['fifo_cost_rub']
+                        part_trade_dict['fifo_cost_rub_str'] = f"{part['fifo_cost_rub']:.2f}"
+                    else:
+                        # Для открывающих частей (open_short, open_long) затраты не показываем
+                        part_trade_dict['fifo_cost_rub_decimal'] = None
+                        part_trade_dict['fifo_cost_rub_str'] = "—"
+
+                    all_display_events.append({
+                        'display_type': 'trade',
+                        'datetime_obj': dt_obj,
+                        'event_details': part_trade_dict,
+                        'isin_group_key': trade_dict_updated_with_fifo.get('isin')
+                    })
+            else:
+                # Обычная сделка без разбиения
+                all_display_events.append({'display_type': 'trade', 'datetime_obj': dt_obj, 'event_details': trade_dict_updated_with_fifo, 'isin_group_key': trade_dict_updated_with_fifo.get('isin')})
 
     processed_no_refs_ids = set() 
     for op in trade_and_holding_ops: 

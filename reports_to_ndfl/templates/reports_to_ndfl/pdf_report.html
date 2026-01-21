@@ -95,6 +95,24 @@
         .non-relevant-row td { color: #888; }
         .option-delivery-row { border-left: 3px solid #f59e0b; }
 
+        /* Стили для разбитых сделок */
+        .split-trade-row { border-left: 3px solid #9c27b0; }
+        .split-trade-row td { background-color: #f3e5f5; }
+        .split-trade-row.split-first td { border-top: 1px solid #9c27b0; }
+        .split-badge {
+            display: inline-block;
+            background: #9c27b0;
+            color: white;
+            padding: 1px 4px;
+            border-radius: 2px;
+            font-size: 7pt;
+            font-weight: bold;
+            margin-top: 2px;
+        }
+        .split-trade-row.non-relevant-row td {
+            background-color: #e8e0eb;
+        }
+
         .section {
             margin-bottom: 15px;
         }
@@ -245,8 +263,8 @@
                         {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                             {% if event_wrapper.display_type == 'trade' %}
                                 {% if event.is_in_pdf_range %}
-                                <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
-                                    <td class="date-cell">{{ event.date|default:"-" }}</td>
+                                <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_split_part %} split-trade-row{% if event.split_part_index == 0 %} split-first{% endif %}{% endif %}">
+                                    <td class="date-cell">{{ event.date|default:"-" }}{% if event.is_split_part %}<br><span class="split-badge">{{ event.split_part_note }}</span>{% endif %}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell">{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
                                     <td>{% firstof event.ticker event.symbol event.isin %}</td>
@@ -380,8 +398,8 @@
                         {% for event_wrapper in event_list %}{% with event=event_wrapper.event_details %}
                             {% if event_wrapper.display_type == 'trade' %}
                                 {% if event.is_in_pdf_range %}
-                                <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}">
-                                    <td class="date-cell">{{ event.date|default:"-" }}</td>
+                                <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_split_part %} split-trade-row{% if event.split_part_index == 0 %} split-first{% endif %}{% endif %}">
+                                    <td class="date-cell">{{ event.date|default:"-" }}{% if event.is_split_part %}<br><span class="split-badge">{{ event.split_part_note }}</span>{% endif %}</td>
                                     <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
                                     <td class="op-cell">{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
                                     <td>{% firstof event.ticker event.symbol event.isin %}</td>
