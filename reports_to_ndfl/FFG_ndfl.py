@@ -1551,17 +1551,19 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
 
     while loop_idx < len(all_display_events):
         current_event_wrapper = all_display_events[loop_idx]; details = current_event_wrapper.get('event_details'); display_type = current_event_wrapper.get('display_type')
-        if display_type == 'trade' and details and current_event_wrapper.get('datetime_obj') and not details.get('is_aggregated'): # Только неагрегированные сделки
+        # Не агрегируем разбитые сделки (is_split_part) - они должны отображаться отдельно
+        if display_type == 'trade' and details and current_event_wrapper.get('datetime_obj') and not details.get('is_aggregated') and not details.get('is_split_part'):
             key_date_obj = current_event_wrapper.get('datetime_obj'); key_date_for_agg = key_date_obj.date() if isinstance(key_date_obj, datetime) else key_date_obj
             key_isin = details.get('isin'); key_price = details.get('p'); key_operation = details.get('operation','').lower(); key_currency = details.get('curr_c')
-            
+
             trades_to_potentially_aggregate = [current_event_wrapper]; next_idx = loop_idx + 1
             while next_idx < len(all_display_events):
                 next_event_wrapper = all_display_events[next_idx]; next_details = next_event_wrapper.get('event_details'); next_display_type = next_event_wrapper.get('display_type')
                 next_datetime_obj = next_event_wrapper.get('datetime_obj'); next_date_for_agg = None
                 if next_datetime_obj: next_date_for_agg = next_datetime_obj.date() if isinstance(next_datetime_obj, datetime) else next_datetime_obj
 
-                if (next_display_type == 'trade' and next_details and not next_details.get('is_aggregated') and 
+                # Не агрегируем разбитые сделки
+                if (next_display_type == 'trade' and next_details and not next_details.get('is_aggregated') and not next_details.get('is_split_part') and
                     next_date_for_agg == key_date_for_agg and
                     next_details.get('isin') == key_isin and next_details.get('p') == key_price and
                     next_details.get('operation','').lower() == key_operation and next_details.get('curr_c') == key_currency):
