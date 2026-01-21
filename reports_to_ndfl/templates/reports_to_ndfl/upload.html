@@ -84,31 +84,35 @@
 
         /* Стили для разбитых сделок (тонкие линии, мягкие цвета) */
         .split-trade-row {
-            border-left: 2px solid #99aabb !important;
+            border-left: none !important;
         }
         .split-trade-row td {
             background-color: #fafbfc !important;
+            border-top: none !important;
+            border-bottom: 1px solid #e8eaec !important;
         }
         .split-trade-row.split-first td {
-            border-top: 1px dashed #bbccdd;
+            border-top: 1px solid #dde0e3 !important;
         }
-        .split-trade-row.split-last td {
-            border-bottom: 1px dashed #bbccdd;
+        .split-merged-cell {
+            background-color: #fff !important;
+            vertical-align: middle;
+            border-left: 2px solid #99aabb !important;
         }
-        .split-badge {
+        .split-badge-inline {
             display: inline-block;
             background: #8899aa;
             color: white;
-            padding: 1px 5px;
-            border-radius: 3px;
-            font-size: 0.7em;
-            margin-top: 2px;
+            padding: 1px 4px;
+            border-radius: 2px;
+            font-size: 0.65em;
+            margin-left: 5px;
         }
         .split-trade-row.non-relevant-row td {
             background-color: #f5f6f7 !important;
             color: #999;
         }
-        .split-trade-row.non-relevant-row .split-badge {
+        .split-trade-row.non-relevant-row .split-badge-inline {
             background: #aabbcc;
         }
 
@@ -448,11 +452,14 @@
                                     </tr>
                                 {% elif event_wrapper.display_type == 'trade' %}
                                     <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}{% if event.is_split_part %} split-trade-row split-part-{{ event.split_part_index }}{% if event.split_part_index == 0 %} split-first{% endif %}{% if event.split_part_index == event.split_total_parts|add:"-1" %} split-last{% endif %}{% endif %}">
-                                        <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">📋 Исполнение опциона</span>{% endif %}{% if event.is_split_part %}<br><span class="split-badge">{{ event.split_part_note }}</span>{% endif %}</td>
-                                        <!-- <td> {{ event.trade_id|default:"-" }}</td> -->
-                                        <td>{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
-                                        <td>{% firstof event.ticker event.symbol event.isin %}</td>
-                                        <td class="numeric">{{ event.p|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
+                                        {% if event.is_split_part and event.split_part_index > 0 %}
+                                            {# Продолжение разбитой сделки - пропускаем объединённые столбцы #}
+                                        {% else %}
+                                            <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}" class="split-merged-cell"{% endif %}>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">📋 Исполнение опциона</span>{% endif %}</td>
+                                            <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}" class="split-merged-cell"{% endif %}>{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
+                                            <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}" class="split-merged-cell"{% endif %}>{% firstof event.ticker event.symbol event.isin %}</td>
+                                            <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}" class="split-merged-cell"{% endif %} class="numeric">{{ event.p|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
+                                        {% endif %}
                                         <td class="quantity-cell">
                                             <span class="link-indicators">
                                                 {% if event.link_colors and event.is_relevant_for_target_year %}
@@ -462,6 +469,7 @@
                                                 {% endif %}
                                             </span>
                                             <span class="quantity-value">{{ event.q|default:"-" }}</span>
+                                            {% if event.is_split_part %}<span class="split-badge-inline">{{ event.split_part_note }}</span>{% endif %}
                                         </td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
@@ -552,11 +560,14 @@
                                     </tr>
                                 {% elif event_wrapper.display_type == 'trade' %}
                                     <tr class="{% if event.is_aggregated %}aggregated-trade-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_option_delivery %} option-delivery-row{% endif %}{% if event.is_split_part %} split-trade-row split-part-{{ event.split_part_index }}{% if event.split_part_index == 0 %} split-first{% endif %}{% if event.split_part_index == event.split_total_parts|add:"-1" %} split-last{% endif %}{% endif %}">
-                                        <td>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">Исполнение опциона</span>{% endif %}{% if event.is_split_part %}<br><span class="split-badge">{{ event.split_part_note }}</span>{% endif %}</td>
-                                        <!-- <td> {{ event.trade_id|default:"-" }}</td> -->
-                                        <td>{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
-                                        <td>{% firstof event.ticker event.symbol event.isin %}</td>
-                                        <td class="numeric">{{ event.p|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
+                                        {% if event.is_split_part and event.split_part_index > 0 %}
+                                            {# Продолжение разбитой сделки - пропускаем объединённые столбцы #}
+                                        {% else %}
+                                            <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}" class="split-merged-cell"{% endif %}>{{ event.date|default:"-" }} {% if event.is_aggregated %}<small>(Aggregated)</small>{% endif %}{% if event.is_option_delivery %}<br><span style="background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">Исполнение опциона</span>{% endif %}</td>
+                                            <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}" class="split-merged-cell"{% endif %}>{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
+                                            <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}" class="split-merged-cell"{% endif %}>{% firstof event.ticker event.symbol event.isin %}</td>
+                                            <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}" class="split-merged-cell"{% endif %} class="numeric">{{ event.p|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
+                                        {% endif %}
                                         <td class="quantity-cell">
                                             <span class="link-indicators">
                                                 {% if event.link_colors and event.is_relevant_for_target_year %}
@@ -566,6 +577,7 @@
                                                 {% endif %}
                                             </span>
                                             <span class="quantity-value">{{ event.q|default:"-" }}</span>
+                                            {% if event.is_split_part %}<span class="split-badge-inline">{{ event.split_part_note }}</span>{% endif %}
                                         </td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>

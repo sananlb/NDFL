@@ -2083,7 +2083,17 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                 details = event_wrapper.get('event_details')
                 if details:
                     trade_id = details.get('trade_id')
-                    details['link_colors'] = trade_id_to_colors.get(trade_id, [])
+                    # Для разбитых сделок: показываем цвета только для закрывающих частей
+                    if details.get('is_split_part'):
+                        split_part_type = details.get('split_part_type')
+                        if split_part_type in ('close_long', 'close_short'):
+                            # Закрывающие части показывают связи с закрываемыми позициями
+                            details['link_colors'] = trade_id_to_colors.get(trade_id, [])
+                        else:
+                            # Открывающие части (open_short, open_long) не имеют связей
+                            details['link_colors'] = []
+                    else:
+                        details['link_colors'] = trade_id_to_colors.get(trade_id, [])
 
     # Присваиваем цвета опционам (те же, что у связанной поставки)
     for isin_key, trades_list in full_instrument_trade_history_for_fifo.items():
