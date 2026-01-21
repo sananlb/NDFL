@@ -1632,12 +1632,13 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     # Обновление fifo_cost_rub_str для неагрегированных сделок, особенно шортов, ПОСЛЕ агрегации
     for event_wrapper in all_display_events:
         details = event_wrapper.get('event_details')
-        if event_wrapper.get('display_type') == 'trade' and details and not details.get('is_aggregated'):
+        # Пропускаем пост-обработку для разбитых частей - их fifo_cost_rub_str уже задан корректно
+        if event_wrapper.get('display_type') == 'trade' and details and not details.get('is_aggregated') and not details.get('is_split_part'):
             if details.get('operation','').lower() == 'sell':
                 status = details.get('short_sale_status')
                 fifo_cost_decimal = details.get('fifo_cost_rub_decimal', Decimal(0))
                 q_sold = details.get('q', Decimal(0))
-                
+
                 # Находим исходную запись в pending_short_sales, если она там была, чтобы получить q_uncovered
                 # Это сложно сделать здесь без доступа к pending_short_sales.
                 # Предположим, что short_sale_status уже содержит всю информацию.
