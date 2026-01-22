@@ -390,9 +390,19 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                     pending_short_entry['q_uncovered'] -= qty_to_cover_short
 
                     # Добавляем ID текущей покупки в used_buy_ids продажи, которая была шортом
+                    buy_trade_id = op.get('trade_id')
                     if 'used_buy_ids' not in original_short_trade_ref:
                         original_short_trade_ref['used_buy_ids'] = []
-                    original_short_trade_ref['used_buy_ids'].append(op.get('trade_id'))
+                    if buy_trade_id and buy_trade_id not in original_short_trade_ref['used_buy_ids']:
+                        original_short_trade_ref['used_buy_ids'].append(buy_trade_id)
+
+                    # Если это разбитая сделка, сохраняем ссылки только в части open_short
+                    if original_short_trade_ref.get('is_split_trade') and original_short_trade_ref.get('split_parts'):
+                        for part in original_short_trade_ref['split_parts']:
+                            if part.get('part_type') == 'open_short':
+                                part_used_ids = part.setdefault('used_buy_ids', [])
+                                if buy_trade_id and buy_trade_id not in part_used_ids:
+                                    part_used_ids.append(buy_trade_id)
 
                     if pending_short_entry['q_uncovered'] <= Decimal('0.000001'):
                         original_short_trade_ref['short_sale_status'] = 'covered_by_future'
@@ -584,14 +594,16 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                             'quantity': final_q_covered_by_past_or_conv,
                             'commission_rub': commission_for_long_part_rub,
                             'fifo_cost_rub': fifo_cost_long_part,
-                            'note': 'закр. лонг'
+                            'note': 'закр. лонг',
+                            'used_buy_ids': list(trade_dict_ref.get('used_buy_ids', []))
                         },
                         {
                             'part_type': 'open_short',
                             'quantity': sell_q_to_cover,
                             'commission_rub': commission_for_short_part_rub,
                             'fifo_cost_rub': commission_for_short_part_rub,  # Базовые расходы до покрытия
-                            'note': 'откр. шорт'
+                            'note': 'откр. шорт',
+                            'used_buy_ids': []
                         }
                     ]
                     trade_dict_ref['is_split_trade'] = True
@@ -1511,7 +1523,11 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                     else:
                         # Для открывающих частей (open_short, open_long) затраты не показываем
                         part_trade_dict['fifo_cost_rub_decimal'] = None
-                        part_trade_dict['fifo_cost_rub_str'] = "—"
+                        part_trade_dict['fifo_cost_rub_str'] = "-"
+
+                    # Используем список ссылок, относящийся к конкретной части
+                    if 'used_buy_ids' in part:
+                        part_trade_dict['used_buy_ids'] = list(part.get('used_buy_ids') or [])
 
                     all_display_events.append({
                         'display_type': 'trade',
@@ -2084,14 +2100,24 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                 details = event_wrapper.get('event_details')
                 if details:
                     trade_id = details.get('trade_id')
-                    # Для разбитых сделок: показываем цвета только для закрывающих частей
+                    # Для разбитых сделок: формируем связи на уровне конкретной части
                     if details.get('is_split_part'):
                         split_part_type = details.get('split_part_type')
-                        if split_part_type in ('close_long', 'close_short'):
-                            # Закрывающие части показывают связи с закрываемыми позициями
+                        operation_type = details.get('operation', '').lower()
+                        if operation_type == 'sell' and split_part_type in ('close_long', 'open_short'):
+                            # Для частей продажи используем только их own used_buy_ids, чтобы не смешивать связи
+                            part_used_buy_ids = details.get('used_buy_ids', [])
+                            part_colors = []
+                            for buy_id in part_used_buy_ids:
+                                color = pair_to_color.get((buy_id, trade_id))
+                                if color and color not in part_colors:
+                                    part_colors.append(color)
+                            details['link_colors'] = part_colors
+                        elif split_part_type == 'close_short':
+                            # Закрытие шорта (покупка) использует обычные цвета покупки
                             details['link_colors'] = trade_id_to_colors.get(trade_id, [])
                         else:
-                            # Открывающие части (open_short, open_long) не имеют связей
+                            # Открывающие части (open_long) и нерелевантные части без связей
                             details['link_colors'] = []
                     else:
                         details['link_colors'] = trade_id_to_colors.get(trade_id, [])
