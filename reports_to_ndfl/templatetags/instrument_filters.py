@@ -76,3 +76,35 @@ def format_currency_breakdown(currencies_dict):
     if formatted_parts:
         return f"({', '.join(formatted_parts)})"
     return ""
+
+
+@register.filter
+def format_cbr_rate(value):
+    """
+    Форматирует курс ЦБ с адаптивным количеством знаков после запятой:
+    - Если курс >= 1, то 2 знака после запятой
+    - Если курс < 1, то 4 знака после запятой
+
+    Пример:
+        79.66 -> "79.66"
+        0.2345 -> "0.2345"
+
+    Args:
+        value: Значение курса (Decimal, float, str или None)
+
+    Returns:
+        Отформатированная строка курса
+    """
+    if value is None:
+        return "-"
+
+    try:
+        if not isinstance(value, Decimal):
+            value = Decimal(str(value))
+
+        if value >= 1:
+            return f"{value:.2f}"
+        else:
+            return f"{value:.4f}"
+    except:
+        return str(value) if value else "-"

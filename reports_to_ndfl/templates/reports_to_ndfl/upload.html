@@ -473,7 +473,7 @@
                                         </td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
-                                        <td class="numeric">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
+                                        <td class="numeric">{{ event.cbr_rate|format_cbr_rate }}</td>
                                         <td class="numeric"><strong>{{ event.fifo_cost_rub_str|default:"-" }}</strong></td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'conversion_info' %}
@@ -509,7 +509,7 @@
                                         </td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
-                                        <td class="numeric">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
+                                        <td class="numeric">{{ event.cbr_rate|format_cbr_rate }}</td>
                                         <td style="font-style: italic; color: #666;">Учтено в поставке</td>
                                     </tr>
                                 {% endif %}
@@ -581,7 +581,7 @@
                                         </td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
-                                        <td class="numeric">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
+                                        <td class="numeric">{{ event.cbr_rate|format_cbr_rate }}</td>
                                         <td class="numeric"><strong>{{ event.fifo_cost_rub_str|default:"-" }}</strong></td>
                                     </tr>
                                 {% elif event_wrapper.display_type == 'conversion_info' %}
@@ -617,7 +617,7 @@
                                         </td>
                                         <td class="numeric"><strong>{{ event.summ|default:"-" }}</strong><small> {{ event.curr_c|default:"" }}</small></td>
                                         <td class="numeric">{{ event.commission|default:"-" }}<small> {{ event.curr_c|default:"" }}</small></td>
-                                        <td class="numeric">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
+                                        <td class="numeric">{{ event.cbr_rate|format_cbr_rate }}</td>
                                         <td style="font-style: italic; color: #666;">Учтено в поставке</td>
                                     </tr>
                                 {% endif %}
