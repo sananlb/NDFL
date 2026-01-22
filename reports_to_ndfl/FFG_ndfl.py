@@ -343,6 +343,7 @@ def _process_all_operations_for_fifo(request, operations_to_process,
             
             # 1. Попытка покрыть ожидающие короткие продажи этой покупкой
             qty_used_for_short_cover = Decimal(0)  # Для отслеживания разбиения
+            covered_short_sell_ids = []  # Список ID продаж, закрываемых этой покупкой
             if op_isin in pending_short_sales and pending_short_sales[op_isin]:
                 temp_pending_shorts_for_isin = list(pending_short_sales[op_isin]) # Работаем с копией для безопасного изменения deque
 
@@ -358,6 +359,9 @@ def _process_all_operations_for_fifo(request, operations_to_process,
 
                     original_short_trade_ref = pending_short_entry['original_trade_dict_ref']
                     qty_to_cover_short = min(buy_quantity_remaining_for_lot, pending_short_entry['q_uncovered'])
+                    short_sell_id = original_short_trade_ref.get('trade_id')
+                    if short_sell_id and short_sell_id not in covered_short_sell_ids:
+                        covered_short_sell_ids.append(short_sell_id)
 
                     # Расходы на закрытие этой части шорта данной покупкой:
                     # Стоимость акций из текущей покупки + пропорциональная комиссия текущей покупки
@@ -424,14 +428,16 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                             'quantity': qty_used_for_short_cover,
                             'commission_rub': commission_for_short_cover_rub,
                             'fifo_cost_rub': None,  # Для покупки не показываем затраты
-                            'note': 'закр. шорт'
+                            'note': 'закр. шорт',
+                            'covered_sell_ids': list(covered_short_sell_ids)
                         },
                         {
                             'part_type': 'open_long',
                             'quantity': buy_quantity_remaining_for_lot,
                             'commission_rub': commission_for_long_open_rub,
                             'fifo_cost_rub': None,
-                            'note': 'откр. лонг'
+                            'note': 'откр. лонг',
+                            'covered_sell_ids': list(covered_short_sell_ids)
                         }
                     ]
                     trade_dict_ref['is_split_trade'] = True
@@ -1528,6 +1534,8 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                     # Используем список ссылок, относящийся к конкретной части
                     if 'used_buy_ids' in part:
                         part_trade_dict['used_buy_ids'] = list(part.get('used_buy_ids') or [])
+                    if 'covered_sell_ids' in part:
+                        part_trade_dict['covered_sell_ids'] = list(part.get('covered_sell_ids') or [])
 
                     all_display_events.append({
                         'display_type': 'trade',
@@ -2012,6 +2020,18 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                             # Для оригинальных ID используем релевантность агрегированной сделки
                             trade_id_to_relevant[orig_id] = is_relevant
 
+    # Дополнительно создаем алиасы для агрегированных продаж (оригинальный ID -> агрегированный ID)
+    sell_id_aliases = {}
+    for isin_key, event_list_for_isin in final_instrument_event_history.items():
+        for event_wrapper in event_list_for_isin:
+            if event_wrapper.get('display_type') == 'trade':
+                details = event_wrapper.get('event_details')
+                if details and details.get('operation', '').lower() == 'sell' and details.get('is_aggregated') and 'original_trade_ids' in details:
+                    aggregated_sell_id = details.get('trade_id')
+                    if aggregated_sell_id:
+                        for orig_id in details['original_trade_ids']:
+                            sell_id_aliases[orig_id] = aggregated_sell_id
+
     # Шаг 1: Создаем уникальный цвет для каждой пары (покупка, продажа)
     # НО только если ОБЕ сделки релевантны для целевого года
     for isin_key, event_list_for_isin in final_instrument_event_history.items():
@@ -2114,8 +2134,24 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                     part_colors.append(color)
                             details['link_colors'] = part_colors
                         elif split_part_type == 'close_short':
-                            # Закрытие шорта (покупка) использует обычные цвета покупки
-                            details['link_colors'] = trade_id_to_colors.get(trade_id, [])
+                            # Закрытие шорта (покупка) показывает только связи с закрываемыми продажами
+                            covered_sell_ids = details.get('covered_sell_ids', [])
+                            covered_sell_ids = [sell_id_aliases.get(sid, sid) for sid in covered_sell_ids]
+                            part_colors = []
+                            for sell_id in covered_sell_ids:
+                                color = pair_to_color.get((trade_id, sell_id))
+                                if color and color not in part_colors:
+                                    part_colors.append(color)
+                            details['link_colors'] = part_colors
+                        elif split_part_type == 'open_long':
+                            # Открывающая часть покупки показывает связи только с "не покрытыми шортами" продажами
+                            covered_sell_ids = details.get('covered_sell_ids', [])
+                            covered_sell_ids = set(sell_id_aliases.get(sid, sid) for sid in covered_sell_ids)
+                            part_colors = []
+                            for (buy_id, sell_id), color in pair_to_color.items():
+                                if buy_id == trade_id and sell_id not in covered_sell_ids and color not in part_colors:
+                                    part_colors.append(color)
+                            details['link_colors'] = part_colors
                         else:
                             # Открывающие части (open_long) и нерелевантные части без связей
                             details['link_colors'] = []
