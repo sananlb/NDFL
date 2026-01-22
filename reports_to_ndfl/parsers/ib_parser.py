@@ -355,7 +355,12 @@ class IBParser(BaseBrokerParser):
                 trades.append(trade)
                 trade_index += 1
 
-        trades.sort(key=lambda x: x.get('datetime_obj') or datetime.min)
+        # Сортировка: по времени, затем по цене (FIFO - сначала дешёвые), затем по trade_id
+        trades.sort(key=lambda x: (
+            x.get('datetime_obj') or datetime.min,
+            x.get('price') or Decimal(0),
+            x.get('trade_id') or ''
+        ))
         return trades
 
     def _parse_dividends(self, sections):
@@ -1701,9 +1706,13 @@ class IBParser(BaseBrokerParser):
 
                 filtered_history[grouping_key].append(event)
 
-        # Сортируем события в каждой группе по дате
+        # Сортируем события в каждой группе: по времени, затем по цене (FIFO), затем по trade_id
         for symbol in filtered_history:
-            filtered_history[symbol].sort(key=lambda x: x.get('datetime_obj') or datetime.min)
+            filtered_history[symbol].sort(key=lambda x: (
+                x.get('datetime_obj') or datetime.min,
+                x.get('event_details', {}).get('price') or Decimal(0),
+                x.get('event_details', {}).get('trade_id') or ''
+            ))
 
         # Определяем диапазон дат для PDF (от первой релевантной покупки до последней релевантной продажи)
         for symbol, events in filtered_history.items():
