@@ -1130,8 +1130,8 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                             try:
                                 instr_type_el = node_element.find('instr_type'); instr_type_val = instr_type_el.text.strip() if instr_type_el is not None and instr_type_el.text else None
 
-                                # Обрабатываем опционы (instr_type='4') отдельно
-                                if instr_type_val == '4':
+                                # Обрабатываем опционы (instr_type='4' - опционы, '16' - истечение опционов) отдельно
+                                if instr_type_val in ('4', '16'):
                                     # Парсим данные опциона
                                     for tag in trade_detail_tags:
                                         data_el = node_element.find(tag)
@@ -1196,7 +1196,10 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                     # Определяем истечение опциона
                                     trade_nb_opt = (trade_data_dict.get('trade_nb') or '').lower()
                                     is_expired = False
-                                    if any(token in trade_nb_opt for token in ('expire', 'expir', 'expiration', 'expired', 'погаш', 'истек', 'истёк')):
+                                    # instr_type='16' - явный признак истечения опциона
+                                    if instr_type_val == '16':
+                                        is_expired = True
+                                    if not is_expired and any(token in trade_nb_opt for token in ('expire', 'expir', 'expiration', 'expired', 'погаш', 'истек', 'истёк')):
                                         is_expired = True
                                     if not is_expired and any(token in operation for token in ('expire', 'expir', 'expiration', 'expired', 'погаш', 'истек', 'истёк')):
                                         is_expired = True
