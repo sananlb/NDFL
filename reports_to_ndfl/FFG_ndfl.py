@@ -371,19 +371,19 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                         cost_of_shares_for_closing_rub = cost_of_shares_for_closing_rub.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                         commission_for_closing_buy_rub = commission_for_closing_buy_rub.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-                    # Обновляем FIFO стоимость для короткой продажи:
+                    # Обновляем FIFO стоимость для короткой продажи (накопительно):
                     # Изначально там была только комиссия самой продажи (sell_commission_rub).
                     # Добавляем стоимость акций для закрытия и комиссию покупки для закрытия.
-                    original_short_trade_ref['fifo_cost_rub_decimal'] = \
-                        (pending_short_entry['sell_commission_rub'] + \
-                         cost_of_shares_for_closing_rub + \
-                         commission_for_closing_buy_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    cover_cost_rub = (cost_of_shares_for_closing_rub + commission_for_closing_buy_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    pending_short_entry['covered_cost_rub'] = (pending_short_entry.get('covered_cost_rub', Decimal(0)) + cover_cost_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    short_total_cost_rub = (pending_short_entry['sell_commission_rub'] + pending_short_entry['covered_cost_rub']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    original_short_trade_ref['fifo_cost_rub_decimal'] = short_total_cost_rub
 
                     # Обновляем split_parts для шорта, если он был разбитой сделкой
                     if original_short_trade_ref.get('is_split_trade') and original_short_trade_ref.get('split_parts'):
                         for part in original_short_trade_ref['split_parts']:
                             if part['part_type'] == 'open_short':
-                                part['fifo_cost_rub'] = original_short_trade_ref['fifo_cost_rub_decimal']
+                                part['fifo_cost_rub'] = short_total_cost_rub
 
                     qty_used_for_short_cover += qty_to_cover_short
                     buy_quantity_remaining_for_lot -= qty_to_cover_short
@@ -590,7 +590,7 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                             'part_type': 'open_short',
                             'quantity': sell_q_to_cover,
                             'commission_rub': commission_for_short_part_rub,
-                            'fifo_cost_rub': None,  # Будет рассчитано при покрытии
+                            'fifo_cost_rub': commission_for_short_part_rub,  # Базовые расходы до покрытия
                             'note': 'откр. шорт'
                         }
                     ]
@@ -608,7 +608,8 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                     'datetime_obj': op_datetime_obj,
                     'q_uncovered': sell_q_to_cover,
                     'original_trade_dict_ref': trade_dict_ref,
-                    'sell_commission_rub': commission_for_short_part_rub  # Только пропорциональная часть комиссии для шорта
+                    'sell_commission_rub': commission_for_short_part_rub,  # Только пропорциональная часть комиссии для шорта
+                    'covered_cost_rub': Decimal(0)
                 })
                 trade_dict_ref['short_sale_status'] = 'pending_cover'
 
