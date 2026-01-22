@@ -99,6 +99,11 @@
         .split-trade-row { border-left: 1px solid #99aabb; }
         .split-trade-row td { background-color: #fafbfc; }
         .split-trade-row.split-first td { border-top: 1px dashed #bbccdd; }
+        .split-merged-cell {
+            background-color: #fff;
+            vertical-align: middle;
+            border-left: 2px solid #99aabb;
+        }
         .split-badge {
             display: inline-block;
             background: #8899aa;
@@ -106,6 +111,15 @@
             padding: 0px 2px;
             border-radius: 1px;
             font-size: 5pt;
+        }
+        .split-badge-inline {
+            display: inline-block;
+            background: #8899aa;
+            color: white;
+            padding: 0px 2px;
+            border-radius: 1px;
+            font-size: 5pt;
+            margin-left: 4px;
         }
         .split-trade-row.non-relevant-row td {
             background-color: #f5f6f7;
@@ -262,11 +276,15 @@
                             {% if event_wrapper.display_type == 'trade' %}
                                 {% if event.is_in_pdf_range %}
                                 <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_split_part %} split-trade-row{% if event.split_part_index == 0 %} split-first{% endif %}{% endif %}">
-                                    <td class="date-cell">{{ event.date|default:"-" }}{% if event.is_split_part %}<br><span class="split-badge">{{ event.split_part_note }}</span>{% endif %}</td>
-                                    <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
-                                    <td class="op-cell">{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
-                                    <td>{% firstof event.ticker event.symbol event.isin %}</td>
-                                    <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
+                                    {% if event.is_split_part and event.split_part_index > 0 %}
+                                        {# Продолжение разбитой сделки - пропускаем объединённые столбцы #}
+                                    {% else %}
+                                        <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}"{% endif %} class="date-cell{% if event.is_split_part %} split-merged-cell{% endif %}">{{ event.date|default:"-" }}</td>
+                                        <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
+                                        <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}"{% endif %} class="op-cell{% if event.is_split_part %} split-merged-cell{% endif %}">{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
+                                        <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}"{% endif %} class="{% if event.is_split_part %}split-merged-cell{% endif %}">{% firstof event.ticker event.symbol event.isin %}</td>
+                                        <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}"{% endif %} class="numeric compact-cell price-cell{% if event.is_split_part %} split-merged-cell{% endif %}">{{ event.p|default:"-" }}</td>
+                                    {% endif %}
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
                                             <span class="link-indicators">
@@ -276,6 +294,7 @@
                                             </span>
                                         {% endif %}
                                         {{ event.q|default:"-" }}
+                                        {% if event.is_split_part %}<span class="split-badge-inline">{{ event.split_part_note }}</span>{% endif %}
                                     </td>
                                     <td class="numeric sum-cell">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
                                     <td class="numeric commission-cell">{{ event.commission|default:"-" }}</td>
@@ -397,11 +416,15 @@
                             {% if event_wrapper.display_type == 'trade' %}
                                 {% if event.is_in_pdf_range %}
                                 <tr class="{% if event.is_option_delivery %}option-delivery-row{% endif %}{% if not event.is_relevant_for_target_year %} non-relevant-row{% endif %}{% if event.is_split_part %} split-trade-row{% if event.split_part_index == 0 %} split-first{% endif %}{% endif %}">
-                                    <td class="date-cell">{{ event.date|default:"-" }}{% if event.is_split_part %}<br><span class="split-badge">{{ event.split_part_note }}</span>{% endif %}</td>
-                                    <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
-                                    <td class="op-cell">{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
-                                    <td>{% firstof event.ticker event.symbol event.isin %}</td>
-                                    <td class="numeric compact-cell price-cell">{{ event.p|default:"-" }}</td>
+                                    {% if event.is_split_part and event.split_part_index > 0 %}
+                                        {# Продолжение разбитой сделки - пропускаем объединённые столбцы #}
+                                    {% else %}
+                                        <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}"{% endif %} class="date-cell{% if event.is_split_part %} split-merged-cell{% endif %}">{{ event.date|default:"-" }}</td>
+                                        <!-- <td class="id-cell">{{ event.trade_id|default:"-" }}</td> -->
+                                        <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}"{% endif %} class="op-cell{% if event.is_split_part %} split-merged-cell{% endif %}">{% if event.is_expired %}Погашение{% elif event.operation|lower == 'buy' and event.income_code == '1532' and event.p == 0 and event.summ == 0 %}Погашение{% elif event.operation|lower == 'buy' %}Покупка{% elif event.operation|lower == 'sell' %}Продажа{% else %}{{ event.operation|default:"-" }}{% endif %}</td>
+                                        <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}"{% endif %} class="{% if event.is_split_part %}split-merged-cell{% endif %}">{% firstof event.ticker event.symbol event.isin %}</td>
+                                        <td {% if event.is_split_part %}rowspan="{{ event.split_total_parts }}"{% endif %} class="numeric compact-cell price-cell{% if event.is_split_part %} split-merged-cell{% endif %}">{{ event.p|default:"-" }}</td>
+                                    {% endif %}
                                     <td class="numeric quantity-cell compact-cell">
                                         {% if event.link_colors %}
                                             <span class="link-indicators">
@@ -411,6 +434,7 @@
                                             </span>
                                         {% endif %}
                                         {{ event.q|default:"-" }}
+                                        {% if event.is_split_part %}<span class="split-badge-inline">{{ event.split_part_note }}</span>{% endif %}
                                     </td>
                                     <td class="numeric sum-cell">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
                                     <td class="numeric commission-cell">{{ event.commission|default:"-" }}</td>
