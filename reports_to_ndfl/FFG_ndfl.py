@@ -2005,6 +2005,8 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
             })
 
         for group_key, events in option_trade_events_by_group.items():
+            if group_key not in final_instrument_event_history:
+                final_instrument_event_history[group_key] = []
             final_instrument_event_history[group_key].extend(events)
             final_instrument_event_history[group_key].sort(key=lambda x: x.get('datetime_obj') or datetime.min)
     all_dividend_events_final_list.sort(key=lambda x: (x.get('date') or date.min, x.get('instrument_name', ''))) 
