@@ -1196,6 +1196,7 @@ class IBParser(BaseBrokerParser):
                     })
                 fifo_cost_rub = None
                 fifo_cost_str = None
+                fifo_cost_by_currency = {}
                 used_buy_ids = []
             else:
                 # Для истёкших опционов: если нет лота покупки, создаём виртуальный на основе Базиса

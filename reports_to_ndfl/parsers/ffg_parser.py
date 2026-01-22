@@ -23,7 +23,28 @@ class FFGParser(BaseBrokerParser):
         #  cost_by_income_code, cost_by_income_code_currencies,
         #  total_dividends_tax_rub, dividends_tax_by_currency, dividend_commissions_by_currency)
         #
-        # FFG не поддерживает опционы, поэтому всё идет в код 1530.
+        # Новый формат (19 элементов) - данные уже разделены по кодам дохода 1530/1532
+        if len(result) == 19:
+            # Новый формат с полной поддержкой разделения по кодам дохода
+            profit_by_income_code = result[8]
+            profit_by_income_code_currencies = result[9]
+            dividends_by_currency = result[10]
+            other_commissions_by_currency = result[11]
+            income_by_income_code = result[12]
+            income_by_income_code_currencies = result[13]
+            cost_by_income_code = result[14]
+            cost_by_income_code_currencies = result[15]
+            total_dividends_tax_rub = result[16]
+            dividends_tax_by_currency = result[17]
+            dividend_commissions_by_currency = result[18]
+
+            return result[:8] + (profit_by_income_code, profit_by_income_code_currencies,
+                                dividends_by_currency, other_commissions_by_currency,
+                                income_by_income_code, income_by_income_code_currencies,
+                                cost_by_income_code, cost_by_income_code_currencies,
+                                total_dividends_tax_rub, dividends_tax_by_currency, dividend_commissions_by_currency)
+
+        # Старый формат (18 элементов) - для обратной совместимости
         if len(result) == 18:
             # New format with income, cost, tax and dividend_commissions_by_currency
             total_sales_profit = result[3] if len(result) > 3 else Decimal(0)

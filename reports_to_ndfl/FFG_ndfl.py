@@ -983,14 +983,21 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     total_dividends_rub_for_year = Decimal(0)
     total_dividends_tax_rub_for_year = Decimal(0)
     total_sales_profit_rub_for_year = Decimal(0)
-    # Для хранения профита по валютам (для кода дохода 1530)
+    # Для хранения профита по валютам (для кода дохода 1530 - акции)
     profit_by_currency_1530 = defaultdict(Decimal)
     # Для хранения дохода и затрат по валютам (для кода дохода 1530)
     income_by_currency_1530 = defaultdict(Decimal)
     cost_by_currency_1530 = defaultdict(Decimal)
+    # Для хранения профита по валютам (для кода дохода 1532 - ПФИ/опционы)
+    profit_by_currency_1532 = defaultdict(Decimal)
+    income_by_currency_1532 = defaultdict(Decimal)
+    cost_by_currency_1532 = defaultdict(Decimal)
     # Для хранения общего дохода и затрат в рублях
     total_income_rub_for_year = Decimal(0)
     total_cost_rub_for_year = Decimal(0)
+    total_income_rub_1532_for_year = Decimal(0)
+    total_cost_rub_1532_for_year = Decimal(0)
+    total_sales_profit_rub_1532_for_year = Decimal(0)
     dividends_by_currency = defaultdict(Decimal)
     dividends_tax_by_currency = defaultdict(Decimal)
     other_commissions_by_currency = defaultdict(Decimal) 
@@ -1002,7 +1009,19 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         relevant_files_for_history = files_queryset.order_by('year', 'uploaded_at')
     if not relevant_files_for_history.exists():
         messages.info(request, f"У вас нет загруженных файлов для анализа истории.") # Сообщение изменено
-        return {}, [], Decimal(0), Decimal(0), _processing_had_error_local_flag[0], defaultdict(lambda: {'amount_by_currency': defaultdict(Decimal),'amount_rub': Decimal(0), 'details': []}), defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []}), Decimal(0)
+        empty_profit_by_code = {'1530': Decimal(0), '1532': Decimal(0)}
+        empty_profit_by_code_curr = {'1530': {}, '1532': {}}
+        return (
+            {}, [], Decimal(0), Decimal(0), _processing_had_error_local_flag[0],
+            defaultdict(lambda: {'amount_by_currency': defaultdict(Decimal),'amount_rub': Decimal(0), 'details': []}),
+            defaultdict(lambda: {'currencies': defaultdict(Decimal), 'total_rub': Decimal(0), 'raw_events': []}),
+            Decimal(0),
+            empty_profit_by_code, empty_profit_by_code_curr,
+            {}, {},
+            empty_profit_by_code.copy(), empty_profit_by_code_curr.copy(),
+            empty_profit_by_code.copy(), empty_profit_by_code_curr.copy(),
+            Decimal(0), {}, {}
+        )
 
 
     trade_detail_tags = ['trade_id', 'date', 'operation', 'instr_nm', 'instr_type', 'instr_kind', 'p', 'curr_c', 'q', 'summ', 'commission', 'issue_nb', 'isin', 'trade_nb', 'ticker']
@@ -2045,7 +2064,9 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
 
                             # Для open_short_sale, fifo_cost_rub_decimal = комиссия продажи. Это корректно для НДФЛ.
                             profit_for_this_sale_rub = income_from_sale_gross_rub - total_expenses_for_sale_rub
-                            total_sales_profit_rub_for_year += profit_for_this_sale_rub
+
+                            # Определяем код дохода (1530 - акции, 1532 - ПФИ/опционы)
+                            income_code = details.get('income_code', '1530')
 
                             # Считаем профит в валюте продажи
                             if cbr_rate_for_sale and cbr_rate_for_sale != 0:
@@ -2053,15 +2074,22 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                             else:
                                 total_expenses_in_currency = Decimal(0)
                             profit_in_currency = sale_amount_curr - total_expenses_in_currency
-                            profit_by_currency_1530[currency_code] += profit_in_currency
 
-                            # Считаем доход и затраты по валютам
-                            income_by_currency_1530[currency_code] += sale_amount_curr
-                            cost_by_currency_1530[currency_code] += total_expenses_in_currency
-
-                            # Считаем общий доход и затраты в рублях
-                            total_income_rub_for_year += income_from_sale_gross_rub
-                            total_cost_rub_for_year += total_expenses_for_sale_rub
+                            # Распределяем по соответствующему коду дохода
+                            if income_code == '1532':
+                                total_sales_profit_rub_1532_for_year += profit_for_this_sale_rub
+                                profit_by_currency_1532[currency_code] += profit_in_currency
+                                income_by_currency_1532[currency_code] += sale_amount_curr
+                                cost_by_currency_1532[currency_code] += total_expenses_in_currency
+                                total_income_rub_1532_for_year += income_from_sale_gross_rub
+                                total_cost_rub_1532_for_year += total_expenses_for_sale_rub
+                            else:
+                                total_sales_profit_rub_for_year += profit_for_this_sale_rub
+                                profit_by_currency_1530[currency_code] += profit_in_currency
+                                income_by_currency_1530[currency_code] += sale_amount_curr
+                                cost_by_currency_1530[currency_code] += total_expenses_in_currency
+                                total_income_rub_for_year += income_from_sale_gross_rub
+                                total_cost_rub_for_year += total_expenses_for_sale_rub
 
 
     if not final_instrument_event_history and not all_dividend_events_final_list and instruments_with_sales_in_target_year:
@@ -2403,22 +2431,49 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
             for currency, amount in amount_by_currency.items():
                 dividend_commissions_by_currency[currency] += amount
 
+    # Формируем словари с разделением по кодам дохода
+    profit_by_income_code = {
+        '1530': total_sales_profit_rub_for_year,
+        '1532': total_sales_profit_rub_1532_for_year
+    }
+    profit_by_income_code_currencies = {
+        '1530': dict(profit_by_currency_1530),
+        '1532': dict(profit_by_currency_1532)
+    }
+    income_by_income_code = {
+        '1530': total_income_rub_for_year,
+        '1532': total_income_rub_1532_for_year
+    }
+    income_by_income_code_currencies = {
+        '1530': dict(income_by_currency_1530),
+        '1532': dict(income_by_currency_1532)
+    }
+    cost_by_income_code = {
+        '1530': total_cost_rub_for_year,
+        '1532': total_cost_rub_1532_for_year
+    }
+    cost_by_income_code_currencies = {
+        '1530': dict(cost_by_currency_1530),
+        '1532': dict(cost_by_currency_1532)
+    }
+
     return (
         final_instrument_event_history,
         all_dividend_events_final_list,
         total_dividends_rub_for_year,
-        total_sales_profit_rub_for_year,
+        total_sales_profit_rub_for_year + total_sales_profit_rub_1532_for_year,  # Общий профит для обратной совместимости
         _processing_had_error_local_flag[0],
         dividend_commissions_details,
         other_commissions_details,
         total_other_commissions_rub_val,
-        dict(profit_by_currency_1530),  # Преобразуем defaultdict в обычный dict
+        profit_by_income_code,  # Изменено: теперь словарь по кодам дохода
+        profit_by_income_code_currencies,  # Изменено: теперь словарь по кодам дохода
         dict(dividends_by_currency),
         dict(other_commissions_by_currency),
-        total_income_rub_for_year,
-        dict(income_by_currency_1530),
-        total_cost_rub_for_year,
-        dict(cost_by_currency_1530),
+        income_by_income_code,  # Изменено: теперь словарь по кодам дохода
+        income_by_income_code_currencies,  # Изменено: теперь словарь по кодам дохода
+        cost_by_income_code,  # Изменено: теперь словарь по кодам дохода
+        cost_by_income_code_currencies,  # Изменено: теперь словарь по кодам дохода
         total_dividends_tax_rub_for_year,
         dict(dividends_tax_by_currency),
         dict(dividend_commissions_by_currency),
