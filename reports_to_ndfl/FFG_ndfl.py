@@ -1137,7 +1137,8 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                         data_el = node_element.find(tag)
                                         trade_data_dict[tag] = (data_el.text.strip() if data_el is not None and data_el.text is not None else None)
 
-                                    operation = trade_data_dict.get('operation', '').strip().lower()
+                                    operation_raw = trade_data_dict.get('operation', '')
+                                    operation = operation_raw.strip().lower()
                                     trade_data_dict['p'] = _str_to_decimal_safe(trade_data_dict.get('p'), 'p', current_trade_id_for_log, _processing_had_error_local_flag)
                                     trade_data_dict['q'] = _str_to_decimal_safe(trade_data_dict.get('q'), 'q', current_trade_id_for_log, _processing_had_error_local_flag)
                                     trade_data_dict['summ'] = _str_to_decimal_safe(trade_data_dict.get('summ'), 'summ', current_trade_id_for_log, _processing_had_error_local_flag)
@@ -1146,10 +1147,27 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                     # Парсим дату
                                     op_datetime_obj_opt = None
                                     if trade_data_dict.get('date'):
+                                        date_str_opt = trade_data_dict['date'].strip()
                                         try:
-                                            op_datetime_obj_opt = datetime.strptime(trade_data_dict['date'], '%Y-%m-%d %H:%M:%S')
+                                            op_datetime_obj_opt = datetime.strptime(date_str_opt, '%Y-%m-%d %H:%M:%S')
                                         except ValueError:
-                                            pass
+                                            for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f'):
+                                                try:
+                                                    op_datetime_obj_opt = datetime.strptime(date_str_opt, fmt)
+                                                    break
+                                                except ValueError:
+                                                    continue
+                                            if op_datetime_obj_opt is None:
+                                                try:
+                                                    op_datetime_obj_opt = datetime.fromisoformat(date_str_opt)
+                                                except ValueError:
+                                                    if date_str_opt.endswith('Z'):
+                                                        try:
+                                                            op_datetime_obj_opt = datetime.fromisoformat(date_str_opt[:-1])
+                                                        except ValueError:
+                                                            pass
+                                        if op_datetime_obj_opt and op_datetime_obj_opt.tzinfo is not None:
+                                            op_datetime_obj_opt = op_datetime_obj_opt.replace(tzinfo=None)
 
                                     # Получаем курс валюты
                                     currency_code_opt = trade_data_dict.get('curr_c', '').strip().upper()
@@ -1180,9 +1198,12 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                     is_expired = False
                                     if any(token in trade_nb_opt for token in ('expire', 'expir', 'expiration', 'expired', 'погаш', 'истек', 'истёк')):
                                         is_expired = True
+                                    if not is_expired and any(token in operation for token in ('expire', 'expir', 'expiration', 'expired', 'погаш', 'истек', 'истёк')):
+                                        is_expired = True
                                     if not is_expired and trade_data_dict['p'] == 0 and trade_data_dict['summ'] == 0:
                                         is_expired = True
                                     trade_data_dict['is_expired'] = is_expired
+                                    trade_data_dict['income_code'] = '1532'
 
                                     # Сохраняем покупку опциона для привязки к поставке
                                     if operation == 'buy':
@@ -1881,19 +1902,26 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
             if not dt_obj:
                 continue
             operation = (opt_trade.get('operation') or '').strip().lower()
-            quantity = opt_trade.get('q', Decimal(0))
-            if quantity <= 0:
-                continue
+            is_expired = bool(opt_trade.get('is_expired'))
 
             opt_name_raw = opt_trade.get('instr_nm') or opt_trade.get('ticker') or opt_trade.get('trade_id') or 'OPTION'
             opt_name = opt_name_raw.strip() if isinstance(opt_name_raw, str) else str(opt_name_raw)
             group_key = f"OPTION_{opt_name}"
+            quantity = opt_trade.get('q', Decimal(0))
+            if quantity is None:
+                quantity = Decimal(0)
+            if quantity < 0:
+                quantity = abs(quantity)
+            if quantity <= 0:
+                if is_expired:
+                    quantity = sum((lot.get('q_remaining', Decimal(0)) for lot in option_buy_lots[group_key]), Decimal(0))
+                if quantity <= 0:
+                    continue
             currency_code = (opt_trade.get('curr_c') or 'RUB').strip().upper()
             cbr_rate = opt_trade.get('cbr_rate_decimal') or Decimal('1.0')
             commission = opt_trade.get('commission', Decimal(0))
             price = opt_trade.get('p', Decimal(0))
             summ = opt_trade.get('summ', Decimal(0))
-            is_expired = bool(opt_trade.get('is_expired'))
 
             # Покупки опционов нужны для FIFO, но отдельными trade-строками не отображаем
             if operation == 'buy' and not is_expired:
@@ -1952,6 +1980,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                 'instr_nm': opt_trade.get('instr_nm') or opt_name,
                 'isin': opt_trade.get('isin', ''),
                 'instr_kind': opt_trade.get('instr_kind') or 'Опцион',
+                'income_code': opt_trade.get('income_code', '1532'),
                 'p': price,
                 'curr_c': currency_code,
                 'transaction_cbr_rate_str': opt_trade.get('transaction_cbr_rate_str', f"{cbr_rate:.4f}"),

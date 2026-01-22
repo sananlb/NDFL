@@ -371,7 +371,8 @@
                                     </td>
                                     <td class="numeric">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
                                     <td class="numeric">{{ event.commission|default:"-" }}</td>
-                                    <td style="font-style: italic; color: #666;">В поставке</td>
+                                    <td class="numeric cbr-rate-cell">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
+                                    <td class="numeric" style="font-style: italic; color: #666;">В поставке</td>
                                 </tr>
                             {% endif %}
                         {% endwith %}{% endfor %}
@@ -511,7 +512,8 @@
                                     </td>
                                     <td class="numeric">{{ event.summ|default:"-" }} {{ event.curr_c|default:"" }}</td>
                                     <td class="numeric">{{ event.commission|default:"-" }}</td>
-                                    <td style="font-style: italic; color: #666;">В поставке</td>
+                                    <td class="numeric cbr-rate-cell">{{ event.cbr_rate|floatformat:2|default:"-" }}</td>
+                                    <td class="numeric" style="font-style: italic; color: #666;">В поставке</td>
                                 </tr>
                             {% endif %}
                         {% endwith %}{% endfor %}
