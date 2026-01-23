@@ -316,25 +316,50 @@ def _process_all_operations_for_fifo(request, operations_to_process,
             # Расчет общей стоимости покупки и комиссии в RUB
             buy_price_per_share_orig_curr = op['price_per_share']
             buy_commission_orig_curr = op['commission']
-            
+
             buy_total_cost_shares_rub = Decimal(0) # Стоимость только акций в RUB
             buy_total_commission_rub = Decimal(0)  # Комиссия покупки в RUB
 
             if op_type == 'initial_holding':
                 # total_cost_rub в op для initial_holding уже должно быть полной стоимостью в RUB
-                buy_total_cost_shares_rub = op['total_cost_rub'] 
+                buy_total_cost_shares_rub = op['total_cost_rub']
                 buy_total_commission_rub = Decimal(0) # Нет отдельной комиссии для НО в FIFO расчете
             else: # Обычная покупка
+                # Расчёт стоимости акций
                 if op['currency'] != 'RUB':
                     if op['cbr_rate_decimal'] is not None:
                         buy_total_cost_shares_rub = (buy_price_per_share_orig_curr * buy_quantity_original * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                        buy_total_commission_rub = (buy_commission_orig_curr * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                     else:
                         if trade_dict_ref: trade_dict_ref['fifo_cost_rub_str'] = "Ошибка курса покупки (FIFO)"
                         _processing_had_error[0] = True; continue
                 else: # RUB trade
                     buy_total_cost_shares_rub = (buy_price_per_share_orig_curr * buy_quantity_original).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                # Расчёт комиссии - учитываем, что валюта комиссии может отличаться от валюты сделки
+                commission_currency = op.get('commission_currency', op['currency'])
+                if commission_currency in ['RUB', 'РУБ', 'РУБ.']:
                     buy_total_commission_rub = buy_commission_orig_curr.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                elif commission_currency == op['currency']:
+                    # Валюта комиссии совпадает с валютой сделки - используем тот же курс
+                    if op['cbr_rate_decimal'] is not None:
+                        buy_total_commission_rub = (buy_commission_orig_curr * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    else:
+                        buy_total_commission_rub = Decimal(0)  # Курс не найден, комиссия не учтена
+                else:
+                    # Валюта комиссии отличается от валюты сделки - нужен отдельный курс
+                    commission_currency_model = Currency.objects.filter(char_code=commission_currency).first()
+                    if commission_currency_model:
+                        _, _, commission_rate = _get_exchange_rate_for_date(request, commission_currency_model, op_date, f"для комиссии покупки {op.get('trade_id', 'N/A')}")
+                        if commission_rate is not None:
+                            buy_total_commission_rub = (buy_commission_orig_curr * commission_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        else:
+                            messages.warning(request, f"Курс {commission_currency} не найден для комиссии покупки {op.get('trade_id', 'N/A')}. Комиссия не учтена.")
+                            _processing_had_error[0] = True
+                            buy_total_commission_rub = Decimal(0)
+                    else:
+                        messages.warning(request, f"Валюта {commission_currency} для комиссии покупки {op.get('trade_id', 'N/A')} не найдена. Комиссия не учтена.")
+                        _processing_had_error[0] = True
+                        buy_total_commission_rub = Decimal(0)
 
             # Полная стоимость одной акции этой покупки В РУБЛЯХ, включая ее комиссию
             cost_per_share_of_this_buy_rub_incl_comm = Decimal(0)
@@ -366,14 +391,38 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                     # Расходы на закрытие этой части шорта данной покупкой:
                     # Стоимость акций из текущей покупки + пропорциональная комиссия текущей покупки
                     cost_of_shares_for_closing_rub = (qty_to_cover_short * buy_price_per_share_orig_curr) # В исходной валюте
-                    commission_for_closing_buy_rub = (buy_commission_orig_curr / buy_quantity_original * qty_to_cover_short) # В исходной валюте
+                    commission_for_closing_buy_orig = (buy_commission_orig_curr / buy_quantity_original * qty_to_cover_short) # В исходной валюте комиссии
 
+                    # Конвертация стоимости акций в рубли
                     if op['currency'] != 'RUB' and op['cbr_rate_decimal'] is not None:
                         cost_of_shares_for_closing_rub = (cost_of_shares_for_closing_rub * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                        commission_for_closing_buy_rub = (commission_for_closing_buy_rub * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                     elif op['currency'] == 'RUB':
                         cost_of_shares_for_closing_rub = cost_of_shares_for_closing_rub.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                        commission_for_closing_buy_rub = commission_for_closing_buy_rub.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                    # Конвертация комиссии в рубли - учитываем, что валюта комиссии может отличаться от валюты сделки
+                    commission_for_closing_buy_currency = op.get('commission_currency', op['currency'])
+                    if commission_for_closing_buy_currency in ['RUB', 'РУБ', 'РУБ.']:
+                        commission_for_closing_buy_rub = commission_for_closing_buy_orig.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    elif commission_for_closing_buy_currency == op['currency']:
+                        # Валюта комиссии совпадает с валютой сделки - используем тот же курс
+                        if op['cbr_rate_decimal'] is not None:
+                            commission_for_closing_buy_rub = (commission_for_closing_buy_orig * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        else:
+                            commission_for_closing_buy_rub = Decimal(0)
+                    else:
+                        # Валюта комиссии отличается от валюты сделки - нужен отдельный курс
+                        commission_for_closing_buy_rub = Decimal(0)
+                        close_comm_currency_model = Currency.objects.filter(char_code=commission_for_closing_buy_currency).first()
+                        if close_comm_currency_model:
+                            _, _, close_comm_rate = _get_exchange_rate_for_date(request, close_comm_currency_model, op_date, f"для комиссии закрытия шорта {op.get('trade_id', 'N/A')}")
+                            if close_comm_rate is not None:
+                                commission_for_closing_buy_rub = (commission_for_closing_buy_orig * close_comm_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                            else:
+                                messages.warning(request, f"Курс {commission_for_closing_buy_currency} не найден для комиссии закрытия шорта {op.get('trade_id', 'N/A')} на {op_date.strftime('%d.%m.%Y')}.")
+                                _processing_had_error[0] = True
+                        else:
+                            messages.warning(request, f"Валюта {commission_for_closing_buy_currency} для комиссии закрытия шорта {op.get('trade_id', 'N/A')} не найдена в системе.")
+                            _processing_had_error[0] = True
 
                     # Обновляем FIFO стоимость для короткой продажи (накопительно):
                     # Изначально там была только комиссия самой продажи (sell_commission_rub).
@@ -478,14 +527,30 @@ def _process_all_operations_for_fifo(request, operations_to_process,
             
             commission_sell_orig_curr = op['commission']
             commission_sell_rub = Decimal(0)
-            if op['currency'] != 'RUB':
+
+            # Расчёт комиссии продажи - учитываем, что валюта комиссии может отличаться от валюты сделки
+            sell_commission_currency = op.get('commission_currency', op['currency'])
+            if sell_commission_currency in ['RUB', 'РУБ', 'РУБ.']:
+                commission_sell_rub = commission_sell_orig_curr.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            elif sell_commission_currency == op['currency']:
+                # Валюта комиссии совпадает с валютой сделки - используем тот же курс
                 if op['cbr_rate_decimal'] is not None:
                     commission_sell_rub = (commission_sell_orig_curr * op['cbr_rate_decimal']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 else:
                     messages.error(request, f"Нет курса для расчета комиссии продажи {op.get('trade_id','N/A')} ({op_isin}). Комиссия не учтена.")
-                    _processing_had_error[0] = True # commission_sell_rub остается 0
-            else: 
-                commission_sell_rub = commission_sell_orig_curr.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    _processing_had_error[0] = True
+            else:
+                # Валюта комиссии отличается от валюты сделки - нужен отдельный курс
+                sell_commission_currency_model = Currency.objects.filter(char_code=sell_commission_currency).first()
+                if sell_commission_currency_model:
+                    _, _, sell_commission_rate = _get_exchange_rate_for_date(request, sell_commission_currency_model, op_date, f"для комиссии продажи {op.get('trade_id', 'N/A')}")
+                    if sell_commission_rate is not None:
+                        commission_sell_rub = (commission_sell_orig_curr * sell_commission_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    else:
+                        messages.warning(request, f"Курс {sell_commission_currency} не найден для комиссии продажи {op.get('trade_id', 'N/A')}. Комиссия не учтена.")
+                        _processing_had_error[0] = True
+                else:
+                    messages.warning(request, f"Валюта {sell_commission_currency} для комиссии продажи {op.get('trade_id', 'N/A')} не найдена. Комиссия не учтена.")
 
             # Начальные расходы для этой продажи = комиссия + стоимость опциона (если есть).
             # Стоимость акций будет добавляться по мере покрытия.
@@ -499,11 +564,39 @@ def _process_all_operations_for_fifo(request, operations_to_process,
                 option_currency = option_data.get('curr_c', '').strip().upper()
                 option_cbr_rate = option_data.get('cbr_rate_decimal', Decimal(1))
 
-                # Переводим стоимость опциона в рубли
+                # Переводим стоимость опциона (без комиссии) в рубли
+                option_price_rub = Decimal(0)
                 if option_currency != 'RUB' and option_cbr_rate:
-                    option_cost_rub = ((option_price + option_commission) * option_cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    option_price_rub = (option_price * option_cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 else:
-                    option_cost_rub = (option_price + option_commission).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    option_price_rub = option_price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                # Комиссия опциона - учитываем, что валюта комиссии может отличаться от валюты опциона
+                option_commission_currency = (option_data.get('commission_currency') or '').strip().upper() or option_currency
+                if option_commission_currency in ['RUB', 'РУБ', 'РУБ.']:
+                    option_commission_rub = option_commission.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                elif option_commission_currency == option_currency:
+                    # Валюта комиссии совпадает с валютой опциона
+                    if option_currency != 'RUB' and option_cbr_rate:
+                        option_commission_rub = (option_commission * option_cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    else:
+                        option_commission_rub = option_commission.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                else:
+                    # Валюта комиссии отличается от валюты опциона - нужен отдельный курс
+                    # Используем дату покупки опциона, а не дату продажи акций
+                    option_commission_rub = Decimal(0)
+                    option_purchase_date = option_data.get('datetime_obj')
+                    if option_purchase_date:
+                        option_purchase_date = option_purchase_date.date() if hasattr(option_purchase_date, 'date') else option_purchase_date
+                    else:
+                        option_purchase_date = op_date  # Fallback на дату продажи, если дата опциона недоступна
+                    opt_del_comm_currency_model = Currency.objects.filter(char_code=option_commission_currency).first()
+                    if opt_del_comm_currency_model:
+                        _, _, opt_del_comm_rate = _get_exchange_rate_for_date(request, opt_del_comm_currency_model, option_purchase_date, f"для комиссии опциона при поставке {option_data.get('trade_id', 'N/A')}")
+                        if opt_del_comm_rate is not None:
+                            option_commission_rub = (option_commission * opt_del_comm_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                option_cost_rub = (option_price_rub + option_commission_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
             trade_dict_ref['fifo_cost_rub_decimal'] = (commission_sell_rub + option_cost_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             trade_dict_ref['short_sale_status'] = 'covered_by_past' # Предположение
@@ -1024,7 +1117,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         )
 
 
-    trade_detail_tags = ['trade_id', 'date', 'operation', 'instr_nm', 'instr_type', 'instr_kind', 'p', 'curr_c', 'q', 'summ', 'commission', 'issue_nb', 'isin', 'trade_nb', 'ticker']
+    trade_detail_tags = ['trade_id', 'date', 'operation', 'instr_nm', 'instr_type', 'instr_kind', 'p', 'curr_c', 'q', 'summ', 'commission', 'commission_currency', 'issue_nb', 'isin', 'trade_nb', 'ticker']
 
     # Словарь для хранения опционных сделок: {trade_id: option_purchase_data}
     option_purchases_by_delivery = {}
@@ -1294,13 +1387,19 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
 
                                 full_instrument_trade_history_for_fifo[current_isin].append(trade_data_dict) 
 
+                                # Получаем валюту комиссии (может отличаться от валюты сделки)
+                                commission_currency_code = (trade_data_dict.get('commission_currency') or '').strip().upper()
+                                if not commission_currency_code:
+                                    commission_currency_code = currency_code  # Fallback на валюту сделки
+
                                 op_for_processing = {
                                     'op_type': 'trade', 'datetime_obj': op_datetime_obj, 'isin': current_isin,
                                     'trade_id': trade_data_dict.get('trade_id'), 'operation_type': trade_data_dict.get('operation', '').strip().lower(),
                                     'quantity': trade_data_dict['q'], 'price_per_share': trade_data_dict['p'],
                                     'commission': trade_data_dict['commission'], 'currency': currency_code,
-                                    'cbr_rate_decimal': rate_decimal, 
-                                    'original_trade_dict_ref': trade_data_dict, 
+                                    'commission_currency': commission_currency_code,
+                                    'cbr_rate_decimal': rate_decimal,
+                                    'original_trade_dict_ref': trade_data_dict,
                                     'file_source': trade_data_dict['file_source']
                                 }
                                 trade_and_holding_ops.append(op_for_processing)
@@ -1947,12 +2046,33 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
 
             # Покупки опционов нужны для FIFO, но отдельными trade-строками не отображаем
             if operation == 'buy' and not is_expired:
+                # Стоимость опциона (без комиссии)
                 total_cost_curr = summ if summ != 0 else (price * quantity)
-                total_cost_curr = total_cost_curr + commission
                 if currency_code != 'RUB':
                     total_cost_rub = (total_cost_curr * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 else:
                     total_cost_rub = total_cost_curr.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                # Комиссия опциона - учитываем, что валюта комиссии может отличаться от валюты сделки
+                opt_commission_currency = (opt_trade.get('commission_currency') or '').strip().upper() or currency_code
+                if opt_commission_currency in ['RUB', 'РУБ', 'РУБ.']:
+                    commission_rub_buy = commission.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                elif opt_commission_currency == currency_code:
+                    # Валюта комиссии совпадает с валютой сделки
+                    if currency_code != 'RUB':
+                        commission_rub_buy = (commission * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    else:
+                        commission_rub_buy = commission.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                else:
+                    # Валюта комиссии отличается от валюты сделки - нужен отдельный курс
+                    commission_rub_buy = Decimal(0)
+                    opt_comm_currency_model = Currency.objects.filter(char_code=opt_commission_currency).first()
+                    if opt_comm_currency_model and dt_obj:
+                        _, _, opt_comm_rate = _get_exchange_rate_for_date(request, opt_comm_currency_model, dt_obj.date(), f"для комиссии покупки опциона {opt_trade.get('trade_id', 'N/A')}")
+                        if opt_comm_rate is not None:
+                            commission_rub_buy = (commission * opt_comm_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                total_cost_rub = (total_cost_rub + commission_rub_buy).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
                 cost_per_unit_rub = Decimal(0)
                 if quantity > 0:
@@ -1980,11 +2100,24 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                 if lot['q_remaining'] <= Decimal('0.000001'):
                     option_buy_lots[group_key].popleft()
 
-            commission_rub = commission
-            if currency_code != 'RUB':
-                commission_rub = (commission * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            else:
+            # Комиссия продажи опциона - учитываем, что валюта комиссии может отличаться от валюты сделки
+            opt_sell_commission_currency = (opt_trade.get('commission_currency') or '').strip().upper() or currency_code
+            if opt_sell_commission_currency in ['RUB', 'РУБ', 'РУБ.']:
                 commission_rub = commission.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            elif opt_sell_commission_currency == currency_code:
+                # Валюта комиссии совпадает с валютой сделки
+                if currency_code != 'RUB':
+                    commission_rub = (commission * cbr_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                else:
+                    commission_rub = commission.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            else:
+                # Валюта комиссии отличается от валюты сделки - нужен отдельный курс
+                commission_rub = Decimal(0)
+                opt_sell_comm_currency_model = Currency.objects.filter(char_code=opt_sell_commission_currency).first()
+                if opt_sell_comm_currency_model and dt_obj:
+                    _, _, opt_sell_comm_rate = _get_exchange_rate_for_date(request, opt_sell_comm_currency_model, dt_obj.date(), f"для комиссии продажи опциона {opt_trade.get('trade_id', 'N/A')}")
+                    if opt_sell_comm_rate is not None:
+                        commission_rub = (commission * opt_sell_comm_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
             fifo_cost_rub_decimal = (fifo_cost_rub_decimal + commission_rub).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             if remaining > Decimal('0.000001'):
