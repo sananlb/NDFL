@@ -43,6 +43,10 @@ class IBParser(BaseBrokerParser):
                 Decimal(0),
                 {},
                 {},
+                # РЕПО-данные (пустые для IB)
+                [],
+                Decimal(0),
+                {},
             )
 
         sections = {}
@@ -129,6 +133,10 @@ class IBParser(BaseBrokerParser):
             total_dividends_tax_rub,
             dividends_tax_by_currency,
             dividend_commissions_by_currency,
+            # РЕПО-данные (пустые для IB)
+            [],
+            Decimal(0),
+            {},
         )
 
     def _get_reports(self):

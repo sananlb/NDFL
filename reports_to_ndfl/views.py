@@ -492,7 +492,8 @@ def upload_xml_file(request):
             income_by_income_code, income_by_income_code_currencies, \
             cost_by_income_code, cost_by_income_code_currencies, \
             total_dividends_tax_rub, dividends_tax_by_currency, \
-            dividend_commissions_by_currency = parser.process()
+            dividend_commissions_by_currency, \
+            repo_events, total_repo_profit_rub, repo_profit_by_currency = parser.process()
 
             # Явное преобразование defaultdict в обычные dict
             # Это должно гарантировать, что в шаблон попадут стандартные dict,
@@ -561,6 +562,10 @@ def upload_xml_file(request):
             context['total_dividend_commissions_rub'] = total_dividend_commissions_rub
             context['total_other_commissions_rub'] = total_other_commissions_rub_val
             context['dividend_fee_matching_report'] = fee_matching_report
+            # РЕПО-данные
+            context['repo_events'] = repo_events
+            context['total_repo_profit_rub'] = total_repo_profit_rub
+            context['repo_profit_by_currency'] = repo_profit_by_currency
 
             if debug_events:
                 debug_group_type_counts = {}
@@ -635,7 +640,8 @@ def download_pdf(request):
     income_by_income_code, income_by_income_code_currencies, \
     cost_by_income_code, cost_by_income_code_currencies, \
     total_dividends_tax_rub, dividends_tax_by_currency, \
-    dividend_commissions_by_currency = parser.process()
+    dividend_commissions_by_currency, \
+    repo_events, total_repo_profit_rub, repo_profit_by_currency = parser.process()
 
     # Преобразуем defaultdict в обычные dict
     if isinstance(dividend_commissions_data, defaultdict):
@@ -723,6 +729,10 @@ def download_pdf(request):
         'total_other_commissions_rub': total_other_commissions_rub_val,
         'dividend_fee_matching_report': fee_matching_report,
         'generation_date': datetime.now().strftime('%d.%m.%Y %H:%M'),
+        # РЕПО-данные
+        'repo_events': repo_events,
+        'total_repo_profit_rub': total_repo_profit_rub,
+        'repo_profit_by_currency': repo_profit_by_currency,
     }
 
     # Рендерим HTML для PDF

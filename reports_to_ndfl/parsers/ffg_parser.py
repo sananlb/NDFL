@@ -21,9 +21,34 @@ class FFGParser(BaseBrokerParser):
         #  dividends_by_currency, other_commissions_by_currency,
         #  income_by_income_code, income_by_income_code_currencies,
         #  cost_by_income_code, cost_by_income_code_currencies,
-        #  total_dividends_tax_rub, dividends_tax_by_currency, dividend_commissions_by_currency)
+        #  total_dividends_tax_rub, dividends_tax_by_currency, dividend_commissions_by_currency,
+        #  repo_events, total_repo_profit_rub, repo_profit_by_currency)
         #
-        # Новый формат (19 элементов) - данные уже разделены по кодам дохода 1530/1532
+        # Новый формат (22 элемента) - с РЕПО-данными
+        if len(result) == 22:
+            profit_by_income_code = result[8]
+            profit_by_income_code_currencies = result[9]
+            dividends_by_currency = result[10]
+            other_commissions_by_currency = result[11]
+            income_by_income_code = result[12]
+            income_by_income_code_currencies = result[13]
+            cost_by_income_code = result[14]
+            cost_by_income_code_currencies = result[15]
+            total_dividends_tax_rub = result[16]
+            dividends_tax_by_currency = result[17]
+            dividend_commissions_by_currency = result[18]
+            repo_events = result[19]
+            total_repo_profit_rub = result[20]
+            repo_profit_by_currency = result[21]
+
+            return result[:8] + (profit_by_income_code, profit_by_income_code_currencies,
+                                dividends_by_currency, other_commissions_by_currency,
+                                income_by_income_code, income_by_income_code_currencies,
+                                cost_by_income_code, cost_by_income_code_currencies,
+                                total_dividends_tax_rub, dividends_tax_by_currency, dividend_commissions_by_currency,
+                                repo_events, total_repo_profit_rub, repo_profit_by_currency)
+
+        # Формат (19 элементов) - данные уже разделены по кодам дохода 1530/1532, без РЕПО
         if len(result) == 19:
             # Новый формат с полной поддержкой разделения по кодам дохода
             profit_by_income_code = result[8]
@@ -42,7 +67,8 @@ class FFGParser(BaseBrokerParser):
                                 dividends_by_currency, other_commissions_by_currency,
                                 income_by_income_code, income_by_income_code_currencies,
                                 cost_by_income_code, cost_by_income_code_currencies,
-                                total_dividends_tax_rub, dividends_tax_by_currency, dividend_commissions_by_currency)
+                                total_dividends_tax_rub, dividends_tax_by_currency, dividend_commissions_by_currency,
+                                [], Decimal(0), {})  # Пустые РЕПО-данные
 
         # Старый формат (18 элементов) - для обратной совместимости
         if len(result) == 18:
@@ -72,7 +98,8 @@ class FFGParser(BaseBrokerParser):
                                 dividends_by_currency, other_commissions_by_currency,
                                 income_by_income_code, income_by_income_code_currencies,
                                 cost_by_income_code, cost_by_income_code_currencies,
-                                total_dividends_tax_rub, dividends_tax_by_currency, dividend_commissions_by_currency)
+                                total_dividends_tax_rub, dividends_tax_by_currency, dividend_commissions_by_currency,
+                                [], Decimal(0), {})  # Пустые РЕПО-данные
 
         if len(result) == 17:
             # New format with income, cost and tax by currencies
@@ -100,7 +127,8 @@ class FFGParser(BaseBrokerParser):
                                 dividends_by_currency, other_commissions_by_currency,
                                 income_by_income_code, income_by_income_code_currencies,
                                 cost_by_income_code, cost_by_income_code_currencies,
-                                total_dividends_tax_rub, dividends_tax_by_currency, {})
+                                total_dividends_tax_rub, dividends_tax_by_currency, {},
+                                [], Decimal(0), {})  # Пустые РЕПО-данные
 
         if len(result) == 15:
             # Old format with income and cost by currencies, but without tax
@@ -125,7 +153,8 @@ class FFGParser(BaseBrokerParser):
                                 dividends_by_currency, other_commissions_by_currency,
                                 income_by_income_code, income_by_income_code_currencies,
                                 cost_by_income_code, cost_by_income_code_currencies,
-                                Decimal(0), {}, {})
+                                Decimal(0), {}, {},
+                                [], Decimal(0), {})  # Пустые РЕПО-данные
 
         if len(result) == 11:
             # Old format with dividends_by_currency and other_commissions_by_currency
@@ -144,7 +173,8 @@ class FFGParser(BaseBrokerParser):
                                 dividends_by_currency, other_commissions_by_currency,
                                 income_by_income_code, income_by_income_code_currencies,
                                 cost_by_income_code, cost_by_income_code_currencies,
-                                Decimal(0), {}, {})
+                                Decimal(0), {}, {},
+                                [], Decimal(0), {})  # Пустые РЕПО-данные
 
         if len(result) == 9:
             total_sales_profit = result[3] if len(result) > 3 else Decimal(0)
@@ -158,7 +188,8 @@ class FFGParser(BaseBrokerParser):
             return result[:8] + (profit_by_income_code, profit_by_income_code_currencies, {}, {},
                                 income_by_income_code, income_by_income_code_currencies,
                                 cost_by_income_code, cost_by_income_code_currencies,
-                                Decimal(0), {}, {})
+                                Decimal(0), {}, {},
+                                [], Decimal(0), {})  # Пустые РЕПО-данные
 
         if len(result) == 8:
             total_sales_profit = result[3] if len(result) > 3 else Decimal(0)
@@ -171,6 +202,7 @@ class FFGParser(BaseBrokerParser):
             return result + (profit_by_income_code, profit_by_income_code_currencies, {}, {},
                             income_by_income_code, income_by_income_code_currencies,
                             cost_by_income_code, cost_by_income_code_currencies,
-                            Decimal(0), {}, {})
+                            Decimal(0), {}, {},
+                            [], Decimal(0), {})  # Пустые РЕПО-данные
 
         return result

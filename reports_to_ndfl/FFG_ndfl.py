@@ -1093,7 +1093,12 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
     total_sales_profit_rub_1532_for_year = Decimal(0)
     dividends_by_currency = defaultdict(Decimal)
     dividends_tax_by_currency = defaultdict(Decimal)
-    other_commissions_by_currency = defaultdict(Decimal) 
+    other_commissions_by_currency = defaultdict(Decimal)
+
+    # Для хранения РЕПО-доходов (instr_type=10, repo_operation=close)
+    all_repo_events_final_list = []
+    total_repo_profit_rub_for_year = Decimal(0)
+    repo_profit_by_currency = defaultdict(Decimal)
 
     # ИЗМЕНЕНО: Загружаем ВСЕ файлы пользователя для полной истории, включая покрытие шортов будущими покупками
     if files_queryset is None:
@@ -1334,6 +1339,68 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
                                     if op_datetime_obj_opt:
                                         option_trades_for_history.append(trade_data_dict)
                                     continue  # Пропускаем дальнейшую обработку опционов
+
+                                # Обрабатываем РЕПО-сделки (instr_type='10')
+                                if instr_type_val == '10':
+                                    repo_operation = node_element.findtext('repo_operation', '').strip().lower()
+                                    # Учитываем только закрытие РЕПО (там фиксируется прибыль)
+                                    if repo_operation == 'close':
+                                        # Парсим данные РЕПО
+                                        for tag in trade_detail_tags:
+                                            data_el = node_element.find(tag)
+                                            trade_data_dict[tag] = (data_el.text.strip() if data_el is not None and data_el.text is not None else None)
+
+                                        # Получаем прибыль из поля profit
+                                        profit_str = node_element.findtext('profit', '0')
+                                        repo_profit = _str_to_decimal_safe(profit_str, 'profit', current_trade_id_for_log, _processing_had_error_local_flag)
+
+                                        if repo_profit > 0:
+                                            # Парсим дату
+                                            op_datetime_obj_repo = None
+                                            if trade_data_dict.get('date'):
+                                                date_str_repo = trade_data_dict['date'].strip()
+                                                try:
+                                                    op_datetime_obj_repo = datetime.strptime(date_str_repo, '%Y-%m-%d %H:%M:%S')
+                                                except ValueError:
+                                                    for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d', '%Y-%m-%dT%H:%M:%S'):
+                                                        try:
+                                                            op_datetime_obj_repo = datetime.strptime(date_str_repo, fmt)
+                                                            break
+                                                        except ValueError:
+                                                            continue
+
+                                            # Проверяем, что сделка в целевом году
+                                            if op_datetime_obj_repo and op_datetime_obj_repo.year == target_report_year:
+                                                currency_code_repo = trade_data_dict.get('curr_c', 'USD').strip().upper()
+                                                rate_decimal_repo = Decimal("1.0000")
+
+                                                if currency_code_repo and currency_code_repo not in ['RUB', 'РУБ', 'РУБ.']:
+                                                    currency_model_repo = Currency.objects.filter(char_code=currency_code_repo).first()
+                                                    if currency_model_repo:
+                                                        _, _, rate_val_repo = _get_exchange_rate_for_date(request, currency_model_repo, op_datetime_obj_repo.date(), f"для РЕПО {current_trade_id_for_log}")
+                                                        if rate_val_repo is not None:
+                                                            rate_decimal_repo = rate_val_repo
+
+                                                repo_profit_rub = (repo_profit * rate_decimal_repo).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                                                # Добавляем в список РЕПО-событий
+                                                repo_event = {
+                                                    'date': op_datetime_obj_repo.date(),
+                                                    'datetime_obj': op_datetime_obj_repo,
+                                                    'trade_id': current_trade_id_for_log,
+                                                    'instrument_name': trade_data_dict.get('instr_nm', 'N/A'),
+                                                    'isin': trade_data_dict.get('isin') or trade_data_dict.get('issue_nb', ''),
+                                                    'profit_currency': repo_profit,
+                                                    'currency': currency_code_repo,
+                                                    'cbr_rate': rate_decimal_repo,
+                                                    'profit_rub': repo_profit_rub,
+                                                    'file_source': trade_data_dict.get('file_source', ''),
+                                                }
+                                                all_repo_events_final_list.append(repo_event)
+                                                total_repo_profit_rub_for_year += repo_profit_rub
+                                                repo_profit_by_currency[currency_code_repo] += repo_profit
+
+                                    continue  # Пропускаем дальнейшую обработку РЕПО
 
                                 if instr_type_val != '1': continue 
 
@@ -2590,6 +2657,9 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         '1532': dict(cost_by_currency_1532)
     }
 
+    # Сортируем РЕПО-события по дате
+    all_repo_events_final_list.sort(key=lambda x: (x.get('date') or date.min, x.get('instrument_name', '')))
+
     return (
         final_instrument_event_history,
         all_dividend_events_final_list,
@@ -2610,4 +2680,8 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
         total_dividends_tax_rub_for_year,
         dict(dividends_tax_by_currency),
         dict(dividend_commissions_by_currency),
+        # РЕПО-данные
+        all_repo_events_final_list,
+        total_repo_profit_rub_for_year,
+        dict(repo_profit_by_currency),
     )
