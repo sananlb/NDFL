@@ -2227,7 +2227,7 @@ def process_and_get_trade_data(request, user, target_report_year, files_queryset
 
     if not final_instrument_event_history and not all_dividend_events_final_list and instruments_with_sales_in_target_year:
          messages.warning(request, f"Найдены продажи в {target_report_year} для {list(instruments_with_sales_in_target_year)}, но не удалось собрать историю операций или дивидендов для них.")
-    elif not final_instrument_event_history and not all_dividend_events_final_list and not instruments_with_sales_in_target_year and UploadedXMLFile.objects.filter(user=user, year=target_report_year).exists(): 
+    elif not final_instrument_event_history and not all_dividend_events_final_list and not instruments_with_sales_in_target_year and files_for_sales_scan_target_year_only.exists():
         messages.info(request, f"В отчетах за {target_report_year} год не найдено продаж по ценным бумагам и не найдено дивидендов для отображения.")
     
     # Помечаем операции, связанные с продажами целевого года
