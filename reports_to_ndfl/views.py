@@ -753,10 +753,14 @@ def download_pdf(request):
 
     # Возвращаем PDF как файл для скачивания
     response = HttpResponse(result.getvalue(), content_type='application/pdf')
-    # Формируем имя файла: Расчет_по_отчету_БрокерНазвание_НомерСчета_Год
-    broker_name_safe = broker_display_name.replace(' ', '').replace('/', '_') if broker_display_name else 'Broker'
+    # Формируем имя файла: Расчет_КодБрокера_НомерСчета_Год
+    broker_code_map = {
+        'Freedom Finance Global': 'FFG',
+        'Interactive Brokers': 'IB',
+    }
+    broker_code = broker_code_map.get(broker_display_name, broker_display_name.replace(' ', '') if broker_display_name else 'Broker')
     account_safe = account_number.replace(' ', '_') if account_number else ''
-    filename_parts = ['Расчет_по_отчету', broker_name_safe]
+    filename_parts = ['Расчет', broker_code]
     if account_safe:
         filename_parts.append(account_safe)
     filename_parts.append(str(target_year))
