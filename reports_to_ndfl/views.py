@@ -761,5 +761,8 @@ def download_pdf(request):
         filename_parts.append(account_safe)
     filename_parts.append(str(target_year))
     filename = '_'.join(filename_parts) + '.pdf'
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    # Кодируем имя файла для поддержки кириллицы (RFC 5987)
+    from urllib.parse import quote
+    filename_encoded = quote(filename)
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{filename_encoded}"
     return response
