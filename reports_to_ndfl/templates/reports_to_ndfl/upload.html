@@ -734,7 +734,7 @@
     {# РЕПО-доходы #}
     {% if repo_events %}
         <div class="content-block">
-            <h2>Код дохода 1011 (Проценты)</h2>
+            <h2>Код дохода 1011</h2>
             <h2>РЕПО-доходы за {{ target_report_year_for_title|default:"указанный" }} год:
                 {% if total_repo_profit_rub > 0 %}
                 <p><small>Общая сумма РЕПО-доходов: {{ total_repo_profit_rub|floatformat:2 }} RUB {% if repo_profit_by_currency %}{{ repo_profit_by_currency|format_currency_breakdown }}{% endif %}</small></p>

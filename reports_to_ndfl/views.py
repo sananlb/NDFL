@@ -753,5 +753,13 @@ def download_pdf(request):
 
     # Возвращаем PDF как файл для скачивания
     response = HttpResponse(result.getvalue(), content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="ndfl_report_{target_year}.pdf"'
+    # Формируем имя файла: Расчет_по_отчету_БрокерНазвание_НомерСчета_Год
+    broker_name_safe = broker_display_name.replace(' ', '').replace('/', '_') if broker_display_name else 'Broker'
+    account_safe = account_number.replace(' ', '_') if account_number else ''
+    filename_parts = ['Расчет_по_отчету', broker_name_safe]
+    if account_safe:
+        filename_parts.append(account_safe)
+    filename_parts.append(str(target_year))
+    filename = '_'.join(filename_parts) + '.pdf'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
