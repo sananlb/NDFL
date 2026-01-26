@@ -769,76 +769,62 @@
     {% endif %}
 
     {# START: Block for Additional Commissions and Other Expenses/Income #}
-    {% if processing_has_run_for_current_display %}
+    {% if processing_has_run_for_current_display and other_commissions %}
         <div class="content-block">
             <h2>Прочие расходы и доходы за {{ target_report_year_for_title|default:"указанный" }} год</h2>
             {# Комиссии по дивидендам теперь отображаются в отдельном блоке после таблицы дивидендов #}
             <p><strong>Общая сумма: {{ total_other_commissions_rub|default:0|floatformat:2 }} RUB {% if other_commissions_by_currency %}{{ other_commissions_by_currency|format_currency_breakdown }}{% endif %}</strong></p>
             <p style="color: #666; font-size: 0.9em;">Отрицательные значения = расходы (комиссии, проценты за маржу). Положительные = доходы (кредитные проценты).</p>
 
-            {% if other_commissions %}
-                <table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">
-                    <thead>
-                        <tr>
-                            <th>Категория</th>
-                            <th>Суммы в валютах</th>
-                            <th class="numeric">Сумма (RUB)</th>
-                            <th>Описание</th>
-                            <th>Детализация</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    {% for category, data in other_commissions.items %}
-                        <tr>
-                            <td>{{ category }}</td>
-                            <td>
-                                {% for currency_code, amount_val in data.currencies.items %}
-                                    {{ amount_val|floatformat:2 }} {{ currency_code }}<br>
-                                {% empty %}
-                                    Нет данных
-                                {% endfor %}
-                            </td>
-                            <td class="numeric" style="font-weight: bold;">{{ data.total_rub|floatformat:2 }}</td>
-                            <td>
-                                <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
-                                {% for event in data.raw_events %}
-                                    <li>
-                                        {{ event.date|date:"d.m.Y" }}:
-                                        {% if event.description %}
-                                            {{ event.description }}
-                                        {% elif event.source %}
-                                            {{ event.source }}
-                                        {% else %}
-                                            -
-                                        {% endif %}
-                                    </li>
-                                {% endfor %}
-                                </ul>
-                            </td>
-                            <td>
-                                <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
-                                {% for event in data.raw_events %}
-                                    <li>{{event.amount|floatformat:2}} {{event.currency}} ({{event.amount_rub|floatformat:2}} RUB)</li>
-                                {% endfor %}
-                                </ul>
-                            </td>
-
-                        </tr>
-                    {% empty %}
-                        <tr>
-                            <td colspan="5" style="text-align: center;">Прочие расходы и доходы не найдены.</td>
-                        </tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p>Прочие расходы и доходы не найдены.</p>
-            {% endif %}
-        </div>
-    {% elif processing_has_run_for_current_display and not instrument_history_1530 and not instrument_history_1532 and not dividend_history and not repo_events %}
-        <div class="content-block">
-             <h2>Детализация прочих брокерских комиссий за {{ target_report_year_for_title|default:"указанный" }} год</h2>
-             <p class="no-data-message">Данные по комиссиям не были обработаны или переданы в шаблон.</p>
+            <table border="1" style="width:100%; border-collapse: collapse; margin-top: 10px;">
+                <thead>
+                    <tr>
+                        <th>Категория</th>
+                        <th>Суммы в валютах</th>
+                        <th class="numeric">Сумма (RUB)</th>
+                        <th>Описание</th>
+                        <th>Детализация</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for category, data in other_commissions.items %}
+                    <tr>
+                        <td>{{ category }}</td>
+                        <td>
+                            {% for currency_code, amount_val in data.currencies.items %}
+                                {{ amount_val|floatformat:2 }} {{ currency_code }}<br>
+                            {% empty %}
+                                Нет данных
+                            {% endfor %}
+                        </td>
+                        <td class="numeric" style="font-weight: bold;">{{ data.total_rub|floatformat:2 }}</td>
+                        <td>
+                            <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
+                            {% for event in data.raw_events %}
+                                <li>
+                                    {{ event.date|date:"d.m.Y" }}:
+                                    {% if event.description %}
+                                        {{ event.description }}
+                                    {% elif event.source %}
+                                        {{ event.source }}
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                            </ul>
+                        </td>
+                        <td>
+                            <ul style="margin: 0; padding-left: 15px; font-size: 0.9em;">
+                            {% for event in data.raw_events %}
+                                <li>{{event.amount|floatformat:2}} {{event.currency}} ({{event.amount_rub|floatformat:2}} RUB)</li>
+                            {% endfor %}
+                            </ul>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
         </div>
     {% endif %}
     {# END: Block for Additional Commissions #}
@@ -847,7 +833,7 @@
         <p style="margin-top:20px; color: #721c24; font-weight:bold; background-color: #f8d7da; border:1px solid #f5c6cb; padding:10px; border-radius:4px;"><b>Внимание:</b> Во время обработки файлов произошли ошибки. Отображаемые данные могут быть неполными. Пожалуйста, проверьте сообщения выше.</p>
     {% endif %}
 
-    {% if processing_has_run_for_current_display and instrument_history_1530 or instrument_history_1532 or dividend_history %}
+    {% if processing_has_run_for_current_display and instrument_history_1530 or instrument_history_1532 or dividend_history or repo_events %}
         <div class="content-block" style="margin-top: 30px;">
             <h3 style="margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px;">Скачать PDF отчет</h3>
             <div style="display: flex; gap: 20px; align-items: flex-start;">
