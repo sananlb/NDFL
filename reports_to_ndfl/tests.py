@@ -1,9 +1,16 @@
 from datetime import datetime
 from collections import defaultdict
 from decimal import Decimal
+import csv
+import os
+import tempfile
 
 from django.test import SimpleTestCase
 
+from reports_to_ndfl.movement_report import (
+    calculate_ffg_movement_from_path,
+    calculate_ib_movement_from_path,
+)
 from reports_to_ndfl.parsers.ib_parser import IBParser
 from reports_to_ndfl.views import _attach_dividend_fees
 
@@ -40,6 +47,150 @@ def _trade(
     }
     trade.update(extra_fields)
     return trade
+
+
+def _row_by_currency(rows, currency):
+    return next(row for row in rows if row["currency"] == currency)
+
+
+class MovementReportCalculationTests(SimpleTestCase):
+    def _write_temp(self, content, suffix):
+        handle = tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=suffix, delete=False)
+        try:
+            handle.write(content)
+            return handle.name
+        finally:
+            handle.close()
+
+    def test_ffg_movement_report_matches_tax_report_fields(self):
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<nodes>
+  <plainAccountInfoData><client_code>764162</client_code></plainAccountInfoData>
+  <cash_flows_json>
+    <node><curr>KZT</curr><curr_at_start>342124.78</curr_at_start><curr_at_end>19686.98</curr_at_end></node>
+    <node><curr>USD</curr><curr_at_start>8.17</curr_at_start><curr_at_end>31.47</curr_at_end></node>
+  </cash_flows_json>
+  <cash_flows>
+    <detailed>
+      <node><amount>-342000</amount><currency>KZT</currency><type_id>bank</type_id></node>
+      <node><amount>4356250</amount><currency>KZT</currency><type_id>card</type_id></node>
+      <node><amount>1210734.72</amount><currency>KZT</currency><type_id>dividend</type_id></node>
+      <node><amount>-1115000</amount><currency>KZT</currency><type_id>card_payout</type_id></node>
+      <node><amount>857808</amount><currency>KZT</currency><type_id>dividend</type_id></node>
+      <node><amount>1800</amount><currency>USD</currency><type_id>bank</type_id></node>
+      <node><amount>-1800</amount><currency>USD</currency><type_id>intercompany</type_id></node>
+      <node><amount>8000</amount><currency>USD</currency><type_id>intercompany</type_id></node>
+      <node><amount>-8000</amount><currency>USD</currency><type_id>intercompany</type_id></node>
+      <node><amount>114</amount><currency>USD</currency><type_id>intercompany</type_id></node>
+    </detailed>
+  </cash_flows>
+  <trades>
+    <detailed>
+      <node><instr_nm>NFE.US</instr_nm><isin>US6443931000</isin><instr_kind>акция</instr_kind><operation>sell</operation><curr_c>USD</curr_c><q>1</q><summ>3928.68</summ></node>
+      <node><instr_nm>DQ.US</instr_nm><isin>US23703Q2030</isin><instr_kind>акция</instr_kind><operation>buy</operation><curr_c>USD</curr_c><q>1</q><summ>1313.77</summ></node>
+      <node><instr_nm>HSBK.KZ</instr_nm><isin>KZ000A0LE0S4</isin><instr_kind>акция</instr_kind><operation>buy</operation><curr_c>KZT</curr_c><q>1</q><summ>23640405.98</summ></node>
+      <node><instr_nm>CCBN.KZ</instr_nm><isin>KZ0007786572</isin><instr_kind>акция</instr_kind><operation>sell</operation><curr_c>KZT</curr_c><q>1</q><summ>17055000</summ></node>
+      <node><instr_nm>KZT/USD</instr_nm><instr_kind>валюта</instr_kind><operation>buy</operation><curr_c>USD</curr_c><q>1285733.16</q><summ>2593.32</summ></node>
+      <node><instr_nm>KZT/USD</instr_nm><instr_kind>валюта</instr_kind><operation>buy</operation><curr_c>USD</curr_c><q>60442.3</q><summ>121.43</summ></node>
+      <node><instr_nm>KZT/USD</instr_nm><instr_kind>валюта</instr_kind><operation>sell</operation><curr_c>USD</curr_c><q>21000</q><summ>40.74</summ></node>
+      <node><instr_nm>KZT/USD</instr_nm><instr_kind>валюта</instr_kind><operation>sell</operation><curr_c>USD</curr_c><q>15000</q><summ>27.6</summ></node>
+      <node><instr_nm>KZT/USD</instr_nm><instr_kind>валюта</instr_kind><operation>sell</operation><curr_c>USD</curr_c><q>15000</q><summ>28.5</summ></node>
+    </detailed>
+  </trades>
+  <commissions><detailed><node><sum>87.70</sum><currency>USD</currency></node></detailed></commissions>
+  <securities_flows_json>
+    <node><ticker>CCBN.KZ</ticker><isin>KZ0007786572</isin><quantity_at_start>2300</quantity_at_start><security_price_at_start>2186.99</security_price_at_start><quantity_at_end>3000</quantity_at_end><security_price>4660</security_price><security_currency>KZT</security_currency></node>
+    <node><ticker>HSBK.KZ</ticker><isin>KZ000A0LE0S4</isin><quantity_at_start>35689</quantity_at_start><security_price_at_start>256.41</security_price_at_start><quantity_at_end>55628</quantity_at_end><security_price>371.59</security_price><security_currency>KZT</security_currency></node>
+    <node><ticker>NFE.US</ticker><isin>US6443931000</isin><quantity_at_start>248</quantity_at_start><security_price_at_start>15.12</security_price_at_start><quantity_at_end>0</quantity_at_end><security_price>0</security_price><security_currency></security_currency></node>
+  </securities_flows_json>
+</nodes>"""
+        path = self._write_temp(xml, ".xml")
+        try:
+            result = calculate_ffg_movement_from_path(path)
+        finally:
+            os.unlink(path)
+
+        usd_cash = _row_by_currency(result["cash_rows"], "USD")
+        kzt_cash = _row_by_currency(result["cash_rows"], "KZT")
+        usd_assets = _row_by_currency(result["asset_rows"], "USD")
+        kzt_assets = _row_by_currency(result["asset_rows"], "KZT")
+
+        self.assertEqual((usd_cash["start"], usd_cash["credited"], usd_cash["debited"], usd_cash["end"]),
+                         (Decimal("8.17"), Decimal("5825.52"), Decimal("5802.22"), Decimal("31.47")))
+        self.assertEqual((kzt_cash["start"], kzt_cash["credited"], kzt_cash["debited"], kzt_cash["end"]),
+                         (Decimal("342124.78"), Decimal("24825968.18"), Decimal("25148405.98"), Decimal("19686.98")))
+        self.assertEqual((usd_assets["start"], usd_assets["credited"], usd_assets["debited"], usd_assets["end"]),
+                         (Decimal("3749.76"), Decimal("1313.77"), Decimal("3928.68"), Decimal("0.00")))
+        self.assertEqual((kzt_assets["start"], kzt_assets["credited"], kzt_assets["debited"], kzt_assets["end"]),
+                         (Decimal("14181093.49"), Decimal("23640405.98"), Decimal("17055000.00"), Decimal("34650808.52")))
+
+    def test_ib_movement_report_matches_tax_report_fields(self):
+        rows = [
+            ["Информация о счете", "Header", "Название поля", "Значение поля"],
+            ["Информация о счете", "Data", "Счет", "U2831222"],
+            ["Отчет о денежных средствах", "Header", "Валютная сводка", "Валюта", "Всего", "Ценные бумаги", "Фьючерсы", ""],
+            ["Отчет о денежных средствах", "Data", "Начальная сумма средств", "USD", "-25338.89312149", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Комиссии", "USD", "-28.1418676", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Дивиденды", "USD", "12627.86", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Ставка брокера: уплачено и получено", "USD", "-1279.57", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Сделки (продажа)", "USD", "99139.4836", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Сделки (покупка)", "USD", "-84893.525", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Другие сборы", "USD", "-125.78", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Выплаты в качестве дивидендов", "USD", "450.73", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Удерживаемый налог", "USD", "-340.54", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Остаток средств на конец периода", "USD", "211.62361091", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Операции с чист. кредитованными ценными бумагами", "USD", "18540", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Начальная сумма средств", "CAD", "169.99993223", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Комиссии", "CAD", "-20", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Ставка брокера: уплачено и получено", "CAD", "0.05", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Сделки (продажа)", "CAD", "17800", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Сделки (покупка)", "CAD", "-17950.04993826", "", "", ""],
+            ["Отчет о денежных средствах", "Data", "Остаток средств на конец периода", "CAD", "-0.00000603", "", "", ""],
+            ["Открытые позиции", "Header", "DataDiscriminator", "Класс актива", "Валюта", "Символ", "Количество", "Множ.", "Цена за единицу", "Базовая стоимость", "Цена закрытия", "Стоимость", "Нереализованная П/У", "Код"],
+            ["Открытые позиции", "Data", "Summary", "Акции", "USD", "AAA", "1", "1", "0", "0", "0", "0", "0", ""],
+            ["Открытые позиции", "Data", "Summary", "Акции", "CAD", "NEO", "1", "1", "0", "0", "0", "0", "0", ""],
+            ["Открытые позиции", "Data", "Summary", "Акции", "CAD", "PEI", "1", "1", "0", "0", "0", "0", "0", ""],
+            ["Открытые позиции", "Data", "Summary", "Акции", "AUD", "AUD1", "1", "1", "0", "0", "0", "0", "0", ""],
+            ["Открытые позиции", "Data", "Summary", "Акции", "GBP", "GBP1", "1", "1", "0", "0", "0", "0", "0", ""],
+            ["Рыночная переоценка: отчет об эффективности", "Header", "Класс актива", "Символ", "Предыд. Количество", "Текущ. Количество", "Предыд. Цена", "Текущ. Цена"],
+            ["Рыночная переоценка: отчет об эффективности", "Data", "Акции", "AAA", "1", "1", "62200.80", "68347.45"],
+            ["Рыночная переоценка: отчет об эффективности", "Data", "Акции", "NEO", "2000", "0", "7.99", "--"],
+            ["Рыночная переоценка: отчет об эффективности", "Data", "Акции", "PEI", "150000", "150000", "0.03", "0.04"],
+            ["Рыночная переоценка: отчет об эффективности", "Data", "Акции", "AUD1", "1", "1", "11100", "11300"],
+            ["Рыночная переоценка: отчет об эффективности", "Data", "Акции", "GBP1", "1", "1", "720", "720"],
+            ["Сделки", "Header", "DataDiscriminator", "Класс актива", "Валюта", "Символ", "Дата/Время", "Количество", "Цена транзакции", "Цена закрытия", "Выручка", "Комиссия/плата", "Базис", "Реализованная П/У"],
+            ["Сделки", "Data", "Order", "Акции", "USD", "AAA", "2025-01-01, 10:00:00", "1", "1", "1", "-84893.525", "0", "0", "0"],
+            ["Сделки", "Data", "Order", "Акции", "USD", "AAA", "2025-01-02, 10:00:00", "-1", "1", "1", "86366.50", "0", "0", "0"],
+            ["Сделки", "Data", "Order", "Акции", "CAD", "NEO", "2025-01-03, 10:00:00", "-1", "1", "1", "17800", "0", "0", "0"],
+            ["Сделки", "Data", "Order", "Опционы на акции и индексы", "USD", "OPT", "2025-01-04, 10:00:00", "-1", "1", "1", "131", "0", "0", "0"],
+        ]
+
+        handle = tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="", suffix=".csv", delete=False)
+        try:
+            writer = csv.writer(handle)
+            writer.writerows(rows)
+            handle.close()
+            result = calculate_ib_movement_from_path(handle.name)
+        finally:
+            os.unlink(handle.name)
+
+        usd_cash = _row_by_currency(result["cash_rows"], "USD")
+        cad_cash = _row_by_currency(result["cash_rows"], "CAD")
+        usd_assets = _row_by_currency(result["asset_rows"], "USD")
+        cad_assets = _row_by_currency(result["asset_rows"], "CAD")
+        aud_assets = _row_by_currency(result["asset_rows"], "AUD")
+
+        self.assertEqual((usd_cash["start"], usd_cash["credited"], usd_cash["debited"], usd_cash["end"]),
+                         (Decimal("-25338.89"), Decimal("112218.07"), Decimal("86667.56"), Decimal("211.62")))
+        self.assertEqual((cad_cash["start"], cad_cash["credited"], cad_cash["debited"], cad_cash["end"]),
+                         (Decimal("170.00"), Decimal("17800.05"), Decimal("17970.05"), Decimal("0.00")))
+        self.assertEqual((usd_assets["start"], usd_assets["credited"], usd_assets["debited"], usd_assets["end"]),
+                         (Decimal("62200.80"), Decimal("84893.52"), Decimal("86366.50"), Decimal("68347.45")))
+        self.assertEqual((cad_assets["start"], cad_assets["credited"], cad_assets["debited"], cad_assets["end"]),
+                         (Decimal("20480.00"), Decimal("0.00"), Decimal("17800.00"), Decimal("6000.00")))
+        self.assertEqual((aud_assets["start"], aud_assets["credited"], aud_assets["debited"], aud_assets["end"]),
+                         (Decimal("11100.00"), Decimal("0.00"), Decimal("0.00"), Decimal("11300.00")))
+        self.assertNotIn("GBP", [row["currency"] for row in result["asset_rows"]])
 
 
 class IBParserConversionLinksTests(SimpleTestCase):

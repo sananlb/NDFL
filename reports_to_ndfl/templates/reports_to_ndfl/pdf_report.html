@@ -700,5 +700,69 @@
     </div>
     {% endif %}
 
+    {% if movement_report_tables %}
+    <div class="section">
+        <h2>Данные для отчета о движении средств и иных финансовых активов</h2>
+        {% for movement_table in movement_report_tables %}
+            <h3>
+                {{ movement_table.broker }}
+                {% if movement_table.account_number %}, счет {{ movement_table.account_number }}{% endif %}
+            </h3>
+
+            {% if movement_table.cash_rows %}
+                <h4>Денежные средства</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Валюта</th>
+                            <th class="numeric">Остаток на начало периода</th>
+                            <th class="numeric">Зачислено всего за период</th>
+                            <th class="numeric">Списано всего за период</th>
+                            <th class="numeric">Остаток на конец периода</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in movement_table.cash_rows %}
+                            <tr>
+                                <td>{{ row.currency }}{% if row.currency_code %} ({{ row.currency_code }}){% endif %}</td>
+                                <td class="numeric">{{ row.start|stringformat:".2f" }}</td>
+                                <td class="numeric">{{ row.credited|stringformat:".2f" }}</td>
+                                <td class="numeric">{{ row.debited|stringformat:".2f" }}</td>
+                                <td class="numeric">{{ row.end|stringformat:".2f" }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+
+            {% if movement_table.asset_rows %}
+                <h4>Иные финансовые активы</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Валюта оценки</th>
+                            <th class="numeric">Стоимость активов на начало периода</th>
+                            <th class="numeric">Стоимость активов, зачисленных на счет</th>
+                            <th class="numeric">Стоимость активов, списанных со счета</th>
+                            <th class="numeric">Стоимость активов на конец периода</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in movement_table.asset_rows %}
+                            <tr>
+                                <td>{{ row.currency }}{% if row.currency_code %} ({{ row.currency_code }}){% endif %}</td>
+                                <td class="numeric">{{ row.start|stringformat:".2f" }}</td>
+                                <td class="numeric">{{ row.credited|stringformat:".2f" }}</td>
+                                <td class="numeric">{{ row.debited|stringformat:".2f" }}</td>
+                                <td class="numeric">{{ row.end|stringformat:".2f" }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
 </body>
 </html>

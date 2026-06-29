@@ -57,6 +57,7 @@ def _pisa_link_callback(uri, _rel):
 
 # Импортируем функцию из нового файла
 from .parsers import FFGParser, IBParser
+from .movement_report import calculate_movement_report_tables
 
 
 def _attach_dividend_fees(dividend_events, dividend_commissions_data):
@@ -337,6 +338,7 @@ def upload_xml_file(request):
         'debug_events': debug_events,
         'debug_acquisition_events': [],
         'debug_group_type_counts': {},
+        'movement_report_tables': [],
     }
     context['target_report_year_for_title'] = request.session.get('last_target_year', None)
 
@@ -566,6 +568,17 @@ def upload_xml_file(request):
             context['repo_events'] = repo_events
             context['total_repo_profit_rub'] = total_repo_profit_rub
             context['repo_profit_by_currency'] = repo_profit_by_currency
+            try:
+                context['movement_report_tables'] = calculate_movement_report_tables(
+                    user,
+                    broker_type_to_process,
+                    year_to_process,
+                )
+            except Exception as exc:
+                messages.warning(
+                    request,
+                    f"Не удалось рассчитать таблицу для отчета о движении средств: {exc}",
+                )
 
             if debug_events:
                 debug_group_type_counts = {}
@@ -700,6 +713,10 @@ def download_pdf(request):
     )
 
     fee_matching_report = None
+    try:
+        movement_report_tables = calculate_movement_report_tables(user, broker_type, target_year)
+    except Exception:
+        movement_report_tables = []
 
     # Контекст для PDF шаблона (БЕЗ информации о пользователе)
     context = {
@@ -733,6 +750,7 @@ def download_pdf(request):
         'repo_events': repo_events,
         'total_repo_profit_rub': total_repo_profit_rub,
         'repo_profit_by_currency': repo_profit_by_currency,
+        'movement_report_tables': movement_report_tables,
     }
 
     # Рендерим HTML для PDF
